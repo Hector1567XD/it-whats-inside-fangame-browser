@@ -74,6 +74,8 @@ const REACTIONS = ["😂", "😭", "😊", "❤️", "😡", "👏", "🤔", "�
 const VOICES = ["", "listen", "fem", "masc", "neutral"];
 const RTC_MAX_BYTES = 20_000; // una oferta SDP de audio pesa ~3-6 KB
 const RTC_PER_SECOND = 50;
+/** Contadores de la señalización de voz, para el log periódico de index.ts. */
+export const rtcStats = { relayed: 0, dropped: 0 };
 
 export class GameRoom extends Room<GameState> {
   maxClients = MAX_PLAYERS * 2; // holgura para que alguien retome su lugar aunque la sala esté llena
@@ -293,6 +295,7 @@ export class GameRoom extends Room<GameState> {
       if (typeof msg.voice === "string" && VOICES.includes(msg.voice)) p.voice = msg.voice;
       if (typeof msg.micOn === "boolean") p.micOn = msg.micOn && !["", "listen"].includes(p.voice);
       this.assignVoiceVariants();
+      console.log(`[voz] ${this.roomId}: ${p.name} → ${p.voice || "sin voz"}${p.micOn ? " 🎙️" : ""}`);
     });
 
     // Señalización WebRTC (malla P2P del lobby): el server solo reenvía ofertas, respuestas e ICE.
@@ -301,14 +304,21 @@ export class GameRoom extends Room<GameState> {
       const to = msg?.to;
       const data = msg?.data;
       if (this.state.phase !== "LOBBY" || typeof to !== "string" || to === me || !data || typeof data !== "object") return;
-      if (!this.state.players.get(to)?.connected || !this.state.players.has(me)) return;
-      if (!("description" in data || "candidate" in data || "hello" in data)) return;
-      if (JSON.stringify(data).length > RTC_MAX_BYTES) return;
+      const drop = (why: string) => {
+        rtcStats.dropped++;
+        console.warn(`[voz] ${this.roomId}: señal de ${this.state.players.get(me)?.name ?? me} descartada (${why})`);
+      };
+      if (!this.state.players.get(to)?.connected || !this.state.players.has(me)) return drop("destino desconectado");
+      if (!("description" in data || "candidate" in data || "hello" in data)) return drop("formato");
+      if (JSON.stringify(data).length > RTC_MAX_BYTES) return drop("muy grande");
       const now = Date.now();
       const w = this.rtcWindow.get(me);
       if (!w || now - w.start >= 1000) this.rtcWindow.set(me, { start: now, count: 1 });
-      else if (++w.count > RTC_PER_SECOND) return;
-      this.clientOf(to)?.send("rtc", { from: me, data });
+      else if (++w.count > RTC_PER_SECOND) return w.count === RTC_PER_SECOND + 1 ? drop("rate limit") : undefined;
+      const target = this.clientOf(to);
+      if (!target) return drop("sin conexión");
+      target.send("rtc", { from: me, data });
+      rtcStats.relayed++;
     });
 
     this.onMessage("settings", (client, patch: Partial<Record<keyof Settings, number | string | boolean>>) => {

@@ -14,6 +14,17 @@ function iceServers(): RTCIceServer[] {
   return [{ urls: "stun:stun.l.google.com:19302" }];
 }
 
+const ICE = iceServers();
+const hasTurn = ICE.some((s) => [s.urls].flat().some((u) => /^turns?:/.test(u)));
+console.info(`[voz] ICE: ${ICE.map((s) => [s.urls].flat().join(",")).join(" · ")}${hasTurn ? "" : " (sin TURN)"}`);
+
+/** Tipo de un candidato ICE (host = red local, srflx = IP pública vía STUN, relay = TURN). */
+const candType = (c: RTCIceCandidateInit | RTCIceCandidate) =>
+  ("type" in c && c.type) || / typ (\w+)/.exec(c.candidate ?? "")?.[1] || "?";
+const countTypes = (list: string[]) =>
+  Object.entries(list.reduce<Record<string, number>>((m, t) => ({ ...m, [t]: (m[t] ?? 0) + 1 }), {}))
+    .map(([t, n]) => `${t}×${n}`).join(" ") || "ninguno";
+
 /** `s` = sesión de la malla que envía, `t` = sesión del destinatario (para descartar señales viejas). */
 type Signal = {
   s: string; t?: string;
@@ -32,6 +43,8 @@ type Peer = {
   audio: HTMLAudioElement;
   analyser: AnalyserNode | null;
   source: MediaStreamAudioSourceNode | null;
+  localTypes: string[]; // tipos de candidatos ICE propios y del otro, para diagnosticar fallos
+  remoteTypes: string[];
 };
 
 /**
@@ -117,8 +130,30 @@ export class VoiceMesh {
     this.room.send("rtc", { to: peer.id, data: { ...data, s: this.session, t: peer.remote } });
   }
 
+  private name(id: string) {
+    return (this.room.state as any)?.players?.get?.(id)?.name ?? id;
+  }
+
+  /** Al fallar: qué candidatos hubo de cada lado y, si se puede, por qué. */
+  private async diagnose(peer: Peer) {
+    const who = this.name(peer.id);
+    const mine = countTypes(peer.localTypes);
+    const theirs = countTypes(peer.remoteTypes);
+    let pairs = "";
+    try {
+      const stats = await peer.pc.getStats();
+      const states: string[] = [];
+      stats.forEach((r: any) => { if (r.type === "candidate-pair") states.push(r.state); });
+      pairs = ` · pares ICE: ${countTypes(states)}`;
+    } catch {}
+    const hint = hasTurn
+      ? "Revisa que el TURN responda (usuario/clave)."
+      : "Sin TURN: si alguno está en 4G/CGNAT/red corporativa no hay ruta directa. Configura VITE_ICE_SERVERS con un TURN.";
+    console.warn(`[voz] ✖ no se pudo conectar con ${who}. Candidatos míos: ${mine} · suyos: ${theirs}${pairs}. ${hint}`);
+  }
+
   private open(id: string, remote: string) {
-    const pc = new RTCPeerConnection({ iceServers: iceServers() });
+    const pc = new RTCPeerConnection({ iceServers: ICE });
     const audio = document.createElement("audio");
     audio.autoplay = true;
     audio.setAttribute("playsinline", "");
@@ -127,7 +162,10 @@ export class VoiceMesh {
     document.body.appendChild(audio);
     const peer: Peer = {
       id, remote, pc, polite: this.myId < id, makingOffer: false, ignoreOffer: false, queue: Promise.resolve(), audio, analyser: null, source: null,
+      localTypes: [], remoteTypes: [],
     };
+    const who = this.name(id);
+    console.info(`[voz] conectando con ${who} (${peer.polite ? "polite" : "impolite"})`);
     this.peers.set(id, peer);
     this.state[id] = pc.connectionState;
 
@@ -140,14 +178,22 @@ export class VoiceMesh {
         await pc.setLocalDescription();
         if (pc.localDescription) this.send(peer, { description: pc.localDescription.toJSON() });
       } catch (e) {
-        console.warn("[voz] oferta", e);
+        console.warn(`[voz] error al ofertar a ${who}:`, e);
       } finally {
         peer.makingOffer = false;
       }
     };
-    pc.onicecandidate = ({ candidate }) => this.send(peer, { candidate: candidate ? candidate.toJSON() : null });
+    pc.onicecandidate = ({ candidate }) => {
+      if (candidate) peer.localTypes.push(candType(candidate));
+      else console.info(`[voz] candidatos para ${who}: ${countTypes(peer.localTypes)}`);
+      this.send(peer, { candidate: candidate ? candidate.toJSON() : null });
+    };
+    pc.oniceconnectionstatechange = () => console.info(`[voz] ICE con ${who}: ${pc.iceConnectionState}`);
     pc.onconnectionstatechange = () => {
       this.state[id] = pc.connectionState;
+      const st = pc.connectionState;
+      if (st === "failed") void this.diagnose(peer);
+      else (st === "connected" ? console.info : console.debug)(`[voz] ${st === "connected" ? "✔ " : ""}conexión con ${who}: ${st}`);
       this.onChange();
     };
     pc.ontrack = ({ track, streams }) => {
@@ -170,7 +216,7 @@ export class VoiceMesh {
     if (!p) return;
     this.peers.delete(id);
     delete this.state[id];
-    p.pc.onnegotiationneeded = p.pc.onicecandidate = p.pc.onconnectionstatechange = p.pc.ontrack = null;
+    p.pc.onnegotiationneeded = p.pc.onicecandidate = p.pc.onconnectionstatechange = p.pc.oniceconnectionstatechange = p.pc.ontrack = null;
     p.pc.close();
     p.source?.disconnect();
     p.audio.srcObject = null;
@@ -179,7 +225,8 @@ export class VoiceMesh {
   }
 
   private play(audio: HTMLAudioElement) {
-    audio.play().catch(() => {
+    audio.play().catch((e) => {
+      console.warn("[voz] el navegador bloqueó el audio hasta un toque:", e?.name ?? e);
       this.blocked = true;
       this.onChange();
     });
@@ -203,7 +250,7 @@ export class VoiceMesh {
       return;
     }
     if (!peer || peer.remote !== data.s) return; // de una malla vieja del otro
-    peer.queue = peer.queue.then(() => this.handle(peer, data)).catch((e) => console.warn("[voz] señal", e));
+    peer.queue = peer.queue.then(() => this.handle(peer, data)).catch((e) => console.warn(`[voz] error con la señal de ${this.name(from)}:`, e));
   }
 
   private async handle(peer: Peer, { description, candidate }: Signal) {
@@ -219,6 +266,7 @@ export class VoiceMesh {
         if (pc.localDescription) this.send(peer, { description: pc.localDescription.toJSON() });
       }
     } else if (candidate !== undefined) {
+      if (candidate) peer.remoteTypes.push(candType(candidate));
       try {
         await pc.addIceCandidate(candidate ?? undefined);
       } catch (e) {

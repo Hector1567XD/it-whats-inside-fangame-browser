@@ -31,7 +31,7 @@ export function VoiceBar({ v, P }: { v: Voice; P: (id: string) => PlayerView | u
         {v.engine && ` · motor: ${ENGINE_LABELS[v.engine]}`}
       </span>
       {v.blocked && <button className="chip warn" onClick={() => { sfx.click(); v.unblock(); }}>🔈 Activar audio</button>}
-      {failed.length > 0 && <span className="voice-note bad">No se pudo conectar con {failed.join(", ")}</span>}
+      {failed.length > 0 && <span className="voice-note bad">No se pudo conectar con {failed.join(", ")} <small>(detalle en la consola, [voz])</small></span>}
     </div>
   );
 }
