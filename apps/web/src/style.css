@@ -685,3 +685,12 @@ main > .spectator-note { margin-top: 12px; }
 .btn.recording { background: var(--red); color: #fff; box-shadow: 0 5px 0 #a3182f; animation: recPulse 1s infinite; }
 @keyframes recPulse { 50% { transform: scale(1.03); } }
 @media (max-width: 420px) { .voice-pick { grid-template-columns: 1fr; } }
+/* voz en partida: ☀️ sala y 🌙 llamada */
+.voice-room { display: flex; flex-direction: column; gap: 12px; min-height: 420px; }
+.voice-grid { flex: 1; display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 12px; align-content: center; padding: 8px 0; }
+.voice-seat { display: flex; flex-direction: column; align-items: center; gap: 4px; background: rgba(255, 255, 255, 0.08); border-radius: 16px; padding: 12px 6px; font-weight: 800; text-align: center; }
+.voice-seat.me { border: 2px solid var(--yellow); }
+.voice-seat small { color: var(--muted); font-size: 12px; }
+.voice-call { display: flex; flex-direction: column; gap: 12px; }
+.voice-call-body { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; }
+.voice-call-body p { margin: 0; }
