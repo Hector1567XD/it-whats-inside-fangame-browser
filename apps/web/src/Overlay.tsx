@@ -1,0 +1,131 @@
+import { useEffect, useRef, useState } from "react";
+import confetti from "canvas-confetti";
+import { Avatar } from "./Avatar";
+import { sfx } from "./sfx";
+import type { PlayerView, StateView } from "./net";
+
+type Banner = { kind: "DAY" | "NIGHT" | "GUESS" | "RESULTS"; title: string; sub: string; ms: number };
+
+/** Letrero gigante animado cada vez que cambia la fase. */
+export function PhaseBanner({ s, bodyName }: { s: StateView; bodyName: string }) {
+  const [b, setB] = useState<(Banner & { key: string }) | null>(null);
+  const key = `${s.phase}-${s.dayCount}-${s.round}`;
+  const first = useRef(true);
+
+  useEffect(() => {
+    const wasFirst = first.current;
+    first.current = false;
+    let banner: Banner | null = null;
+    if (s.phase === "DAY") {
+      banner = { kind: "DAY", title: `DÍA ${s.dayCount}`, sub: `Chat grupal · todos te ven como ${bodyName}`, ms: 2600 };
+      sfx.day();
+    } else if (s.phase === "NIGHT") {
+      const n = s.chatLimit;
+      banner = { kind: "NIGHT", title: `NOCHE ${s.dayCount}`, sub: `Solo puedes INICIAR ${n} chat${n === 1 ? "" : "s"} privado${n === 1 ? "" : "s"} 🤫`, ms: 3400 };
+      sfx.night();
+    } else if (s.phase === "GUESS") {
+      banner = { kind: "GUESS", title: "¿QUIÉN ES QUIÉN?", sub: "Adivina qué mente hay en cada cuerpo", ms: 2600 };
+      sfx.guess();
+    } else if (s.phase === "RESULTS") {
+      banner = { kind: "RESULTS", title: "¡REVELACIÓN!", sub: "Veamos lo que hay adentro… 🧳", ms: 2000 };
+      sfx.drumroll(1.6);
+    }
+    if (!banner || (wasFirst && s.timer > 0 && s.timer < 10)) return setB(null);
+    setB({ ...banner, key });
+    const t = setTimeout(() => setB(null), banner.ms);
+    return () => clearTimeout(t);
+  }, [key]);
+
+  if (!b) return null;
+  return (
+    <div key={b.key} className={"banner banner-" + b.kind} onClick={() => setB(null)} style={{ animationDuration: `${b.ms}ms` }}>
+      <div className="banner-deco">
+        {b.kind === "DAY" && <div className="sunrays" />}
+        {b.kind === "DAY" && <div className="sun">☀️</div>}
+        {b.kind === "NIGHT" && <Stars n={40} />}
+        {b.kind === "NIGHT" && <div className="moon">🌙</div>}
+        {b.kind === "GUESS" && <div className="lens">🔍</div>}
+        {b.kind === "RESULTS" && <div className="lens">🥁</div>}
+      </div>
+      <h1 className="banner-title">{b.title}</h1>
+      <p className="banner-sub">{b.sub}</p>
+      {b.kind === "NIGHT" && (
+        <div className="banner-chats">
+          {Array.from({ length: s.chatLimit }, (_, i) => <span key={i} style={{ animationDelay: `${0.7 + i * 0.15}s` }}>💬</span>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function Stars({ n }: { n: number }) {
+  const [stars] = useState(() =>
+    Array.from({ length: n }, () => ({ l: Math.random() * 100, t: Math.random() * 100, d: Math.random() * 3, s: 2 + Math.random() * 3 })),
+  );
+  return (
+    <div className="stars">
+      {stars.map((x, i) => (
+        <i key={i} style={{ left: `${x.l}%`, top: `${x.t}%`, animationDelay: `${x.d}s`, width: x.s, height: x.s }} />
+      ))}
+    </div>
+  );
+}
+
+/** Fase SWAP: la ruleta de cuerpos que termina en tu nuevo cuerpo. */
+export function SwapScreen({ players, mind, body, timer }: { players: PlayerView[]; mind?: PlayerView; body?: PlayerView; timer: number }) {
+  const [idx, setIdx] = useState(0);
+  const [landed, setLanded] = useState(false);
+  const target = Math.max(0, players.findIndex((p) => p.id === body?.id));
+
+  useEffect(() => {
+    if (!body) return;
+    sfx.swap();
+    let i = 0;
+    let delay = 70;
+    let t: ReturnType<typeof setTimeout>;
+    const total = players.length * 3 + target; // unas vueltas y cae en el cuerpo correcto
+    const step = () => {
+      i++;
+      setIdx(i % players.length);
+      if (i % 2 === 0) sfx.tick();
+      if (i >= total) {
+        setLanded(true);
+        sfx.land();
+        confetti({ particleCount: 120, spread: 90, origin: { y: 0.55 }, colors: [body.color, "#ffd23d", "#ffffff"] });
+        return;
+      }
+      if (i > total - 7) delay *= 1.35;
+      t = setTimeout(step, delay);
+    };
+    t = setTimeout(step, 900);
+    return () => clearTimeout(t);
+  }, [body?.id]);
+
+  return (
+    <div className="swap">
+      <h1 className="swap-title">🧳 ¡LA MÁQUINA ESTÁ LISTA!</h1>
+      {mind && (
+        <p className="swap-mind">
+          Tu mente: <Avatar avatar={mind.avatar} color={mind.color} size={32} /> <b>{mind.name}</b> … sale volando 👻
+        </p>
+      )}
+      <div className={"swap-ring" + (landed ? " landed" : "")}>
+        {players.map((p, i) => (
+          <div key={p.id} className={"swap-cell" + (i === idx ? " on" : "") + (landed && i === target ? " win" : "")}>
+            <Avatar avatar={p.avatar} color={p.color} size={64} />
+            <span>{p.name}</span>
+          </div>
+        ))}
+      </div>
+      {landed && body ? (
+        <div className="swap-result">
+          <div className="swap-now">✅ Transferencia completa. Ahora estás en el cuerpo de</div>
+          <Avatar avatar={body.avatar} color={body.color} size={120} className="wobble" />
+          <div className="swap-body">{body.name}</div>
+          <p className="swap-tip">Actúa como <b>{body.name}</b> durante toda la partida. ¡Que nadie sepa que eres tú! 🤐</p>
+          <p className="muted">El Día 1 empieza en {timer}s…</p>
+        </div>
+      ) : <p className="swap-now pulse">⚡ Iniciando la transferencia…</p>}
+    </div>
+  );
+}

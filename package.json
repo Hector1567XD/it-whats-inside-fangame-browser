@@ -1,5 +1,6 @@
 {
-  "name": "lo-que-hay-adentro",
+  "name": "mindswap",
+  "engines": { "node": ">=20" },
   "private": true,
   "workspaces": ["apps/*"],
   "scripts": {

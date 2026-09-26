@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: mindswap
+    runtime: node
+    plan: free
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: MIN_PLAYERS
+        value: "4"

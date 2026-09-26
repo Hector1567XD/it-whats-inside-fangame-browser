@@ -33,8 +33,15 @@ export async function roomInfo(code: string) {
 }
 
 // ---- tipos que espejan el server ----
-export type Phase = "LOBBY" | "DAY" | "NIGHT" | "GUESS" | "RESULTS";
-export type PlayerView = { id: string; name: string; color: string; score: number; connected: boolean; submitted: boolean };
+export type Phase = "LOBBY" | "SWAP" | "DAY" | "NIGHT" | "GUESS" | "RESULTS";
+export type PlayerView = {
+  id: string; name: string; color: string; avatar: string; score: number;
+  connected: boolean; submitted: boolean; skipVote: boolean;
+};
+export type Settings = {
+  days: number; nights: number; daySeconds: number; nightSeconds: number; guessSeconds: number;
+  chatsPerNight: number; // 0 = auto
+};
 export type StateView = {
   phase: Phase;
   dayCount: number;
@@ -42,16 +49,21 @@ export type StateView = {
   timer: number;
   hostId: string;
   minPlayers: number;
+  chatLimit: number;
+  settings: Settings;
   players: Record<string, PlayerView>;
 };
-export type ChatMsg = { fromBody: string; text: string; ts: number };
-export type DmMsg = ChatMsg & { withBody: string };
+export type ChatMsg = { fromBody: string; real: boolean; tag: string; text: string; ts: number };
+export type DmMsg = { fromBody: string; text: string; ts: number; withBody: string };
 export type RoundResult = {
   mindId: string;
-  finalBodyId: string;
-  history: string[];
+  bodyId: string;
   correct: number;
   guessedBy: number;
   stealth: boolean;
   points: number;
 };
+
+// Mismas fórmulas que el server (GameRoom.ts)
+export const autoChats = (players: number) => (players <= 5 ? 2 : players <= 7 ? 3 : 4);
+export const skipNeeded = (connected: number) => Math.floor(connected / 2) + 1;
