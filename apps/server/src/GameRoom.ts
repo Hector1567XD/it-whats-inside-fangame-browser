@@ -1062,9 +1062,10 @@ export class GameRoom extends Room<GameState> {
     // "config" se puede pedir siempre: dice si hay SFU y con qué ICE conectarse.
     if (op === "config") return reply({ ok: true, sfu: sfuEnabled(), iceServers: sfuEnabled() ? await iceServers() : [] });
     if (!sfuEnabled()) return reply({ error: "El SFU no está configurado" });
-    // Cerrar o salir con la fase ya cambiada no es un error: las sesiones ya se soltaron.
-    if ((op === "leave" || op === "close") && this.state.phase !== "LOBBY") return reply({ ok: true });
-    if (this.state.phase !== "LOBBY" || !this.state.players.has(me)) return reply({ error: "La voz solo funciona en la sala de espera" });
+    const voiceNow = this.state.phase === "LOBBY" || this.voiceInGame();
+    // Cerrar o salir con la voz ya apagada no es un error: las sesiones ya se soltaron.
+    if ((op === "leave" || op === "close") && !voiceNow) return reply({ ok: true });
+    if (!voiceNow || !this.state.players.has(me)) return reply({ error: "La voz no está activa en esta fase" });
     const peer = this.sfuPeers.get(me) ?? { ready: false };
     this.sfuPeers.set(me, peer);
     const who = this.state.players.get(me)?.name ?? me;
