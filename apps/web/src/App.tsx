@@ -13,6 +13,9 @@ import { DayView, Guess, QuestionPhase, ThreadPhase, type Social } from "./Phase
 import { Results } from "./Results";
 import { SpectatorNote, VerdictScreen, VotePhase, type Floater } from "./Vote";
 import { sfx, isMuted, setMuted } from "./sfx";
+import { useVoice, type Voice } from "./voice/useVoice";
+import { VoiceSetup } from "./voice/VoiceSetup";
+import { VoiceBar, voiceIcon } from "./voice/VoiceBar";
 
 const COLORS = ["#ff4d8d", "#ff8a3d", "#ffd23d", "#5ee37a", "#3dd6ff", "#6c7bff", "#b36bff", "#ffffff"];
 const randomColor = () => COLORS[Math.floor(Math.random() * COLORS.length)];
@@ -269,6 +272,7 @@ function Game({ room }: { room: Room }) {
   const [toast, setToast] = useState<{ text: string; kind: string; id: number } | null>(null);
   const meRef = useRef(me);
   meRef.current = me;
+  const voice = useVoice(room, s, me?.mindId); // solo vive en el LOBBY
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   function flash(text: string, kind = "info") {
@@ -379,7 +383,7 @@ function Game({ room }: { room: Room }) {
       <main>
         {s.phase === "LOBBY" && (
           <div className="split">
-            <Lobby s={s} players={players} isHost={isHost} room={room} />
+            <Lobby s={s} players={players} isHost={isHost} room={room} voice={voice} />
             <GroupChat room={room} entries={chat} me={me} P={P} people={players} speakAs={P(me.mindId)?.name ?? ""} />
           </div>
         )}
@@ -487,18 +491,23 @@ function TopBar({ s, room, me, role, isHost, players }: {
   );
 }
 
-function Lobby({ s, players, isHost, room }: { s: StateView; players: PlayerView[]; isHost: boolean; room: Room }) {
+function Lobby({ s, players, isHost, room, voice }: { s: StateView; players: PlayerView[]; isHost: boolean; room: Room; voice: Voice }) {
   const enough = players.length >= s.minPlayers;
   const played = s.round > 0;
   const list = played ? [...players].sort((a, b) => b.score - a.score) : players;
   return (
     <div className="card lobby">
+      {voice.showSetup && <VoiceSetup v={voice} />}
+      <VoiceBar v={voice} P={(id) => s.players[id]} />
       <h2>{played ? `🏆 Marcador total · ${s.round} ronda${s.round === 1 ? "" : "s"}` : "Jugadores"} ({players.length}/{s.maxPlayers})</h2>
       <ul className="plist">
         {list.map((p, i) => (
           <li key={p.id} className="pop-in" style={{ animationDelay: `${i * 0.05}s` }}>
             {played && <span className="medal">{["🥇", "🥈", "🥉"][i] ?? `${i + 1}.`}</span>}
-            <Avatar avatar={p.avatar} color={p.color} size={42} className="bob" style={{ animationDelay: `${i * 0.3}s` }} /> {p.name}
+            <span className={"voice-ring" + (voice.speaking[p.id] ? " speaking" : "")}>
+              <Avatar avatar={p.avatar} color={p.color} size={42} className="bob" style={{ animationDelay: `${i * 0.3}s` }} />
+            </span> {p.name}
+            <span className="voice-icon" title="Voz">{voiceIcon(p)}</span>
             {p.id === s.hostId && <span className="tag">👑 HOST</span>}
             {played && (
               <span className="score">
@@ -559,6 +568,10 @@ function SettingsPanel({ s, isHost, room, players }: { s: StateView; isHost: boo
     time("☀️ Chat global", "daySeconds", 15),
     time("🌙 Chat privado", "nightSeconds", 15),
     time(finalName, "guessSeconds", 15),
+    {
+      label: "📻 Walkie-talkie (voz)", value: ["Off", "Poquito", "Bastante"][st.voiceWalkie] ?? "Off",
+      dec: () => set({ voiceWalkie: Math.max(0, st.voiceWalkie - 1) }), inc: () => set({ voiceWalkie: Math.min(2, st.voiceWalkie + 1) }),
+    },
     {
       label: "💬 Chats por noche",
       value: st.chatsPerNight === 0 ? `Auto (${autoChats(players)})` : `${st.chatsPerNight}`,

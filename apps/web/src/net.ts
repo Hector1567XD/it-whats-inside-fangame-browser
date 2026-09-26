@@ -2,8 +2,9 @@ import { Client, Room } from "colyseus.js";
 
 const env = import.meta.env;
 const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
+// En dev con HTTPS=1 (probar el micrófono en el celular) Vite hace de proxy: mismo origen.
 export const SERVER_WS: string =
-  env.VITE_SERVER_URL ?? (env.DEV ? `${wsProto}//${location.hostname}:2567` : `${wsProto}//${location.host}`);
+  env.VITE_SERVER_URL ?? (env.DEV && location.protocol !== "https:" ? `${wsProto}//${location.hostname}:2567` : `${wsProto}//${location.host}`);
 export const SERVER_HTTP = SERVER_WS.replace(/^ws/, "http");
 
 export const client = new Client(SERVER_WS);
@@ -41,12 +42,16 @@ export type Role = "immutable" | "changer" | null;
 export type PlayerView = {
   id: string; name: string; color: string; avatar: string; score: number; lastPoints: number;
   connected: boolean; submitted: boolean; skipVote: boolean; out: boolean; bodyOut: boolean;
+  voice: VoiceKind; voiceVariant: number; micOn: boolean; // voz del lobby
 };
+/** "" = sin voz, "listen" = solo escucha. */
+export type VoiceKind = "" | "listen" | "fem" | "masc" | "neutral";
 export type Settings = {
   mode: Mode; cycles: number;
   questionSeconds: number; threadSeconds: number; daySeconds: number; nightSeconds: number; guessSeconds: number;
   chatsPerNight: number; // 0 = auto
   earlyVote: boolean; voteSeconds: number; maxEjections: number; unmaskSame: boolean;
+  voiceWalkie: number; // 📻 0 off · 1 poquito · 2 bastante
 };
 export type ReplyView = { id: string; body: string; text: string; likes: number; sus: number };
 export type PostView = ReplyView & { replies: ReplyView[] };

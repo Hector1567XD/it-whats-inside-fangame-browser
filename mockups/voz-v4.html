@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MindSwap · Voz v4</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Nunito:wght@600;800&display=swap" rel="stylesheet" />
+<style>
+/* Propuesta v4 (solo voz). Documento; no toca el juego. */
+:root {
+  --card: rgba(40, 10, 80, 0.55); --line: rgba(255, 255, 255, 0.18); --muted: rgba(255, 255, 255, 0.72);
+  --accent: #5ee37a; --accent-d: #2fae4c; --yellow: #ffd23d; --red: #ff3d5a; --ink: #2a0d4d; --blue: #3dd6ff;
+}
+* { box-sizing: border-box; }
+html { background: #1a0838; }
+body { margin: 0; font-family: "Nunito", system-ui, sans-serif; color: #fff; background: linear-gradient(135deg, #1d0b4d, #3b1270 60%, #1a0838); background-attachment: fixed; min-height: 100vh; overflow-x: hidden; }
+h1, h2, h3 { font-family: "Lilita One", sans-serif; font-weight: 400; letter-spacing: 0.5px; }
+a { color: var(--yellow); }
+code { background: rgba(0, 0, 0, 0.3); padding: 0 5px; border-radius: 5px; font-size: 0.9em; }
+.page { max-width: 1200px; margin: 0 auto; padding: 20px 16px 80px; }
+.hero { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; justify-content: space-between; }
+.hero h1 { margin: 0; font-size: clamp(30px, 5vw, 46px); text-shadow: 0 4px 0 var(--ink); transform: rotate(-1.5deg); }
+.hero h1 span { color: var(--yellow); }
+.hero p { margin: 6px 0 0; color: var(--muted); max-width: 760px; line-height: 1.45; }
+.side { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+.warn { background: var(--yellow); color: var(--ink); font-weight: 800; padding: 8px 14px; border-radius: 14px; box-shadow: 0 4px 0 #b8901a; font-size: 14px; }
+.nav { position: sticky; top: 0; z-index: 20; display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 0; margin: 10px 0; background: linear-gradient(#1d0b4d 75%, transparent); }
+.nav a { text-decoration: none; color: #fff; font-weight: 800; font-size: 13px; padding: 6px 12px; border-radius: 999px; border: 2px solid var(--line); background: rgba(255, 255, 255, 0.08); }
+.nav a:hover { background: var(--yellow); color: var(--ink); border-color: #fff; }
+section { margin: 28px 0; scroll-margin-top: 70px; }
+section > h2 { font-size: 28px; margin: 0 0 6px; }
+.lead { margin: 0 0 14px; color: var(--muted); max-width: 920px; line-height: 1.45; }
+.card { background: var(--card); border: 2px solid var(--line); border-radius: 20px; padding: 14px 16px; }
+.card h3 { margin: 0 0 8px; font-size: 20px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+@media (max-width: 900px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
+ul.clean { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; line-height: 1.4; }
+ul.clean b { color: var(--yellow); }
+.tag { display: inline-block; font-size: 11px; font-weight: 800; padding: 1px 8px; border-radius: 999px; white-space: nowrap; vertical-align: 1px; }
+.ok { background: rgba(94, 227, 122, 0.25); color: #b8f5c6; }
+.meh { background: rgba(255, 210, 61, 0.22); color: #ffe9a3; }
+.bad { background: rgba(255, 61, 90, 0.25); color: #ffc0ca; }
+.unv { background: rgba(255, 255, 255, 0.12); color: var(--muted); }
+.table-wrap { overflow-x: auto; border-radius: 16px; border: 2px solid var(--line); background: rgba(0, 0, 0, 0.22); }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 820px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; line-height: 1.35; }
+th { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; background: rgba(0, 0, 0, 0.2); }
+tr.rec td:first-child { box-shadow: inset 4px 0 0 var(--accent); }
+tr.no td { opacity: 0.7; }
+
+/* veredicto */
+.verdict { border: 3px solid var(--accent); background: linear-gradient(135deg, rgba(94, 227, 122, 0.16), rgba(40, 10, 80, 0.6)); }
+.verdict h3 { font-size: 24px; }
+.pick { display: flex; flex-direction: column; gap: 4px; }
+.pick .n { font-family: "Lilita One"; font-size: 13px; letter-spacing: 1px; color: var(--muted); }
+.pick h3 { margin: 0; }
+.pick.rec { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(94, 227, 122, 0.2); }
+.pick .row { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0; }
+.big { font-family: "Lilita One"; font-size: 26px; color: var(--yellow); }
+
+/* maqueta: nota de voz en el chat privado */
+.phone { background: linear-gradient(135deg, #0d0b2e, #2b1760); border: 3px solid var(--line); border-radius: 24px; overflow: hidden; display: flex; flex-direction: column; min-height: 460px; }
+.ph-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: rgba(255, 255, 255, 0.05); border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+.ph-head b { display: block; }
+.ph-head span { font-size: 12px; color: var(--muted); }
+.av { width: 38px; height: 38px; border-radius: 50%; border: 3px solid #fff; overflow: hidden; display: grid; place-items: center; flex-shrink: 0; }
+.av img { width: 88%; }
+.ph-msgs { flex: 1; padding: 14px; display: flex; flex-direction: column; gap: 6px; }
+.dmb { max-width: 78%; padding: 7px 12px; border-radius: 18px; line-height: 1.3; align-self: flex-start; background: #2c2560; border-bottom-left-radius: 6px; }
+.dmb.mine { align-self: flex-end; background: linear-gradient(135deg, #8a3dff, #d6246e); border-bottom-right-radius: 6px; }
+.vnote { display: flex; align-items: center; gap: 10px; min-width: 230px; }
+.vnote .play { width: 34px; height: 34px; border-radius: 50%; border: none; background: #fff; color: var(--ink); font-size: 14px; cursor: pointer; flex-shrink: 0; }
+.wave { display: flex; align-items: center; gap: 2px; height: 26px; flex: 1; }
+.wave i { width: 3px; border-radius: 2px; background: rgba(255, 255, 255, 0.55); }
+.vnote.playing .wave i { animation: wv 0.8s ease-in-out infinite; }
+@keyframes wv { 50% { transform: scaleY(0.4); } }
+.vmeta { display: flex; justify-content: space-between; font-size: 11px; color: rgba(255, 255, 255, 0.75); margin-top: 3px; }
+.vvoice { font-weight: 800; background: rgba(0, 0, 0, 0.25); border-radius: 999px; padding: 0 7px; }
+.ph-comp { display: flex; gap: 8px; align-items: center; padding: 10px; border-top: 1px solid rgba(255, 255, 255, 0.1); }
+.ph-comp input { flex: 1; border: 2px solid rgba(255, 255, 255, 0.15); background: rgba(255, 255, 255, 0.08); color: #fff; border-radius: 999px; padding: 8px 14px; font: inherit; }
+.mic { width: 42px; height: 42px; border-radius: 50%; border: none; cursor: pointer; font-size: 18px; background: var(--yellow); color: var(--ink); box-shadow: 0 3px 0 #b8901a; user-select: none; }
+.mic.rec { background: var(--red); color: #fff; animation: pulse 1s infinite; }
+@keyframes pulse { 50% { transform: scale(1.08); } }
+.hint { font-size: 12px; color: var(--muted); text-align: center; padding: 0 0 8px; }
+
+/* flujo */
+.flow { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+.box { flex: 1 1 150px; background: rgba(255, 255, 255, 0.07); border: 2px solid var(--line); border-radius: 14px; padding: 10px; font-size: 13px; line-height: 1.35; }
+.box b { display: block; font-size: 14px; margin-bottom: 2px; }
+.box.c { border-color: rgba(94, 227, 122, 0.6); }
+.box.s { border-color: rgba(255, 210, 61, 0.6); }
+.box.x { border-color: rgba(61, 214, 255, 0.6); }
+.arrow { align-self: center; font-size: 22px; color: var(--muted); }
+pre { background: rgba(0, 0, 0, 0.35); border: 1px solid var(--line); border-radius: 12px; padding: 12px; overflow-x: auto; font-size: 12.5px; line-height: 1.45; margin: 0; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="hero">
+    <div>
+      <h1>MindSwap · <span>Voz v4</span></h1>
+      <p>Propuesta completa para <b>camuflar la voz</b> con un presupuesto de prueba de <b>~US$20</b>, priorizando que sea rápido de implementar. Cubre las opciones con IA, un servidor propio que modula el audio (con o sin GPU) y el navegador. Investigado el 26/09/2026.</p>
+    </div>
+    <div class="side">
+      <div class="warn">📄 Propuesta. No hay nada implementado en el juego.</div>
+      <a href="voz-v3.html">← v3 (laboratorio de voz en el navegador)</a>
+    </div>
+  </div>
+
+  <nav class="nav">
+    <a href="#veredicto">Recomendación</a><a href="#nota">Cómo se juega</a><a href="#opciones">Todas las opciones</a>
+    <a href="#motores">Motores de voz</a><a href="#transporte">Transporte</a><a href="#arq">Arquitectura</a>
+    <a href="#presupuesto">Presupuesto $20</a><a href="#plan">Plan</a><a href="#riesgos">Riesgos</a><a href="#fuentes">Fuentes</a>
+  </nav>
+
+  <section id="veredicto">
+    <h2>🏆 Recomendación</h2>
+    <div class="card verdict">
+      <h3>Notas de voz por push-to-talk, convertidas en el servidor</h3>
+      <ul class="clean">
+        <li><b>Nada de tiempo real al principio.</b> Mantienes el botón 🎙️, grabas 2–15 s, sueltas, y el clip viaja por el <b>WebSocket de Colyseus que ya existe</b>. El server lo convierte a la <b>voz del cuerpo</b> y lo reparte. Llega como una nota de voz tipo WhatsApp, 0,5–3 s después.</li>
+        <li><b>Funciona en todos los navegadores.</b> El cliente solo graba (MediaRecorder); no hacen falta worklets ni nada raro. Justo lo que falló en tu prueba deja de importar.</li>
+        <li><b>Funciona en Render tal como está hoy:</b> no necesita UDP, WebRTC ni SFU.</li>
+        <li><b>El motor de voz va detrás de una interfaz</b> y se cambia con un ajuste del host. Así pruebas varios con tus amigos:
+          <b>🎛️ Praat "Change gender"</b> (servidor propio, CPU, gratis) ·
+          <b>🧠 ElevenLabs Voice Changer</b> (IA, conserva risas y emoción) ·
+          <b>📝 Deepgram voz→texto→voz</b> (IA, anonimato máximo, gratis con el crédito inicial).</li>
+        <li><b>Costo de prueba:</b> ≈ <b>US$11</b> (1 mes de ElevenLabs Creator con descuento). Praat y Deepgram te salen gratis.</li>
+        <li><b>Tiempo:</b> ~<b>2 días</b> para las notas de voz con Praat, y ~<b>+1 día</b> para enchufar los dos motores de IA.</li>
+        <li><b>Después, si el juego pide conversación continua:</b> LiveKit con un agente en el servidor que modula en vivo (ver opción C).</li>
+      </ul>
+    </div>
+    <div class="grid3" style="margin-top:14px">
+      <div class="card pick rec">
+        <span class="n">EMPEZAR YA</span><h3>A. Notas de voz + Praat en el server</h3>
+        <div class="row"><span class="tag ok">Todos los navegadores</span><span class="tag ok">Render sirve</span><span class="tag ok">$0</span></div>
+        <p style="margin:0">Sin IA. Cambia el tono y los formantes a un preset: <i>"Hombre 1 = mediana 105 Hz, formantes ÷1,12"</i>. Procesa un clip de 5 s en ~0,1 s de CPU.</p>
+        <p style="margin:0;color:var(--muted);font-size:13px">Camufla, pero pasan el ritmo, el acento y la risa.</p>
+      </div>
+      <div class="card pick rec">
+        <span class="n">EN PARALELO, PARA COMPARAR</span><h3>B. Mismas notas de voz, con motor IA</h3>
+        <div class="row"><span class="tag ok">Voz natural</span><span class="tag meh">1–3 s de espera</span><span class="tag meh">US$0,5–4 por partida</span></div>
+        <p style="margin:0"><b>ElevenLabs</b>: cambia el timbre por completo y conserva la actuación. <b>Deepgram/OpenAI voz→texto→voz</b>: solo pasan las palabras.</p>
+        <p style="margin:0;color:var(--muted);font-size:13px">Mismo cliente y mismo transporte que A: solo cambia el motor.</p>
+      </div>
+      <div class="card pick">
+        <span class="n">MÁS ADELANTE</span><h3>C. Llamada en vivo + modulación en el servidor</h3>
+        <div class="row"><span class="tag ok">Conversación real</span><span class="tag meh">4–7 días</span><span class="tag meh">Fuera de Render</span></div>
+        <p style="margin:0">LiveKit (Cloud gratis o autoalojado en un VPS) + un <b>agente</b> que recibe el audio de cada jugador, lo modula (DSP en CPU o RVC en GPU) y lo republica.</p>
+        <p style="margin:0;color:var(--muted);font-size:13px">Es el camino para autoalojarlo todo.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="nota">
+    <h2>🎮 Cómo se juega: notas de voz en la voz del cuerpo</h2>
+    <p class="lead">No hace falta una fase nueva. En el <b>chat privado</b> (y luego en el global) aparece un botón 🎙️ junto al input. Mantienes, hablas y sueltas. Tu nota llega con la <b>voz del cuerpo</b> que habitas: si estás en el cuerpo de Mateo, suenas a "Hombre 1". La voz va pegada al cuerpo, igual que el nombre y el avatar, así que no revela nada. Además, las notas no requieren que estén todos conectados al mismo tiempo ni que haya silencio.</p>
+    <div class="grid2">
+      <div class="phone">
+        <div class="ph-head"><span class="av" style="background:#5ee37a"><img src="https://api.dicebear.com/9.x/big-smile/svg?seed=mateo-mindswap" alt=""></span><div><b>Cuerpo de Mateo</b><span>🌙 solo ustedes dos · voz: Hombre 1</span></div></div>
+        <div class="ph-msgs" id="msgs">
+          <div class="dmb">oye, ¿tú viste lo que dijo nico?</div>
+          <div class="dmb" id="n1"></div>
+          <div class="dmb mine">jaja sí, muy raro</div>
+          <div class="dmb mine" id="n2"></div>
+        </div>
+        <div class="hint">Mantén 🎙️ para grabar · suelta para enviar · desliza para cancelar</div>
+        <div class="ph-comp"><input placeholder="Escribe como Sofía…" /><button class="mic" id="mic" title="Mantén para grabar">🎙️</button></div>
+      </div>
+      <div class="card">
+        <h3>Reglas propuestas</h3>
+        <ul class="clean">
+          <li><b>Máximo 15 s por nota</b> y un límite por noche (p. ej. 6), para que no se vuelva un podcast.</li>
+          <li>Una nota cuenta como mensaje: <b>iniciar un chat con una nota gasta 💬</b>, igual que un texto.</li>
+          <li><b>La voz la decide el server</b> según el cuerpo. En "Todos cambian" todos hablan con voz ajena, y eso le da sentido al modo.</li>
+          <li><b>Voces por defecto:</b> H1, H2, H3, M1, M2, M3 más 2 neutras, repartidas entre los cuerpos al empezar la ronda.</li>
+          <li>El host elige el <b>motor</b> en el lobby: 🎛️ Clásico (gratis), 🧠 IA natural o 📝 IA anónima.</li>
+          <li>Los espectadores no graban.</li>
+          <li><b>El clip original nunca se reenvía ni se guarda</b>: se convierte y se borra.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="opciones">
+    <h2>Todas las opciones (36 min de audio por partida: 12 jugadores × 3 min)</h2>
+    <div class="table-wrap"><table>
+      <tr><th>Opción</th><th>Modo</th><th>Calidad</th><th>Anonimato</th><th>Implementación</th><th>Costo por partida</th><th>Con US$20</th><th>Autoalojable</th></tr>
+      <tr class="rec"><td><b>🎛️ Praat "Change gender"</b> en tu server</td><td>Clips</td><td>Media (natural, algo procesada)</td><td>Media-baja</td><td><b>~1–2 días</b></td><td>≈ $0</td><td>Ilimitadas</td><td>✅ Ya lo es</td></tr>
+      <tr><td>Rubber Band / Signalsmith en tu server</td><td>Clips</td><td>Media</td><td>Media-baja</td><td>1–2 días</td><td>≈ $0</td><td>Ilimitadas</td><td>✅</td></tr>
+      <tr class="rec"><td><b>🧠 ElevenLabs Voice Changer</b></td><td>Clips</td><td><b>Alta</b>, conserva emoción y risas</td><td>Media-alta (pasan acento y ritmo)</td><td>~1 día</td><td>≈ $4,3 (a $0,12/min)</td><td>≈ 3–4</td><td>❌ (el equivalente propio es RVC)</td></tr>
+      <tr class="rec"><td><b>📝 Deepgram</b> Nova-3 → Aura-2 (voces en español)</td><td>Clips, 1,5–3 s</td><td>Alta, tono de locutor</td><td><b>Máximo</b> (solo pasa el texto)</td><td>~1 día</td><td>≈ $1,2</td><td><b>Gratis</b> con $200 de crédito (≈170)</td><td>Parcial (Whisper + Piper/Kokoro)</td></tr>
+      <tr><td>OpenAI mini-transcribe → mini-tts</td><td>Clips</td><td>Alta, tono de locutor</td><td>Máximo</td><td>~1 día</td><td>≈ $0,6 <span class="tag unv">TTS no verificado</span></td><td>≈ 30</td><td>Parcial</td></tr>
+      <tr><td>fal.ai Chatterbox speech-to-speech</td><td>Clips</td><td>Media-alta <span class="tag unv">español no verificado</span></td><td>Media-alta</td><td>~1 día</td><td>≈ $0,54</td><td>≈ 37</td><td>✅ Chatterbox es open source (MIT)</td></tr>
+      <tr><td>ElevenLabs Scribe → Flash TTS</td><td>Clips</td><td>Alta</td><td>Máximo</td><td>~1 día</td><td>≈ $1,75</td><td>≈ 11</td><td>❌</td></tr>
+      <tr><td>DSP en vivo en un agente de LiveKit</td><td><b>Tiempo real</b></td><td>Media</td><td>Media-baja</td><td>4–7 días</td><td>Céntimos (VPS €5–24/mes o LiveKit Cloud gratis)</td><td>Ilimitadas / ~30 gratis</td><td>✅ LiveKit OSS</td></tr>
+      <tr><td>RVC en vivo en GPU (RunPod / Modal) + LiveKit</td><td><b>Tiempo real</b></td><td>Alta</td><td>Media-alta</td><td>1–2 semanas</td><td>≈ $0,5–0,8 por hora de GPU</td><td>≈ 25–40 (Modal da $30/mes gratis)</td><td>✅ Tu propia GPU</td></tr>
+      <tr><td>DSP en el navegador (v3)</td><td>Tiempo real</td><td>Media</td><td>Media-baja</td><td>3–5 días</td><td>$0</td><td>Ilimitadas</td><td>✅</td></tr>
+      <tr class="no"><td>Replicate RVC v2</td><td>Clips de ~34 s</td><td>Alta</td><td>Media-alta</td><td>2 días + modelos</td><td>≈ $3,2</td><td>≈ 6</td><td>—</td></tr>
+      <tr class="no"><td>Voicemod · Dubbing AI (Agora) · Voice.ai · Cartesia VC</td><td colspan="7">Sin SDK web, sin API pública, o cerrado (Cartesia VC habría cerrado el 20/08/2026 <span class="tag unv">no verificado</span>). Descartados.</td></tr>
+    </table></div>
+  </section>
+
+  <section id="motores">
+    <h2>Los motores, en detalle</h2>
+    <div class="grid3">
+      <div class="card">
+        <h3>🎛️ Praat "Change gender"</h3>
+        <ul class="clean">
+          <li>Desde Python con <code>parselmouth</code> (pip, sin compilar). Hecho justo para cambiar de "género": pide <b>ratio de formantes</b> y <b>mediana de tono nueva en Hz</b>.</li>
+          <li>La mediana es <b>absoluta</b>: todos los que caen en "Mujer 1" terminan cerca de 200 Hz, sin calibrar a cada jugador.</li>
+          <li>Medido: <b>0,04–0,13 s</b> de CPU por clip de 5 s.</li>
+          <li>Licencia GPL-3. Si solo corre en tu server y no lo distribuyes, no te obliga a publicar código (interpretación, no asesoría legal).</li>
+          <li>Presets de ejemplo: H1 = 1/1,12 y 105 Hz · H2 = 1/1,06 y 135 Hz · M1 = 1,10 y 200 Hz · M2 = 1,18 y 235 Hz.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>🧠 ElevenLabs Voice Changer</h3>
+        <ul class="clean">
+          <li><code>POST /v1/speech-to-speech/{voice_id}</code>, modelo <code>eleven_multilingual_sts_v2</code>, con español.</li>
+          <li>Conserva susurros, risas, llanto y emoción, así que <b>se sigue pudiendo actuar</b>. También pasan el acento y el ritmo.</li>
+          <li>1.000 créditos por minuto. Creator: US$22 (US$11 el primer mes) por 121k créditos ≈ 121 min.</li>
+          <li>⚠️ Las voces "Default" caducan el 31/12/2026: elige los presets entre las voces nuevas o de la Voice Library.</li>
+          <li>Formatos de entrada webm/mp4: <span class="tag unv">no verificado</span>. Lo seguro es convertir a wav con ffmpeg en el server.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>📝 Voz → texto → voz</h3>
+        <ul class="clean">
+          <li><b>Deepgram</b>: Nova-3 multilingüe $0,0052/min + Aura-2 $0,030 por 1k caracteres, con voces en español (p. ej. Celeste, Néstor). <b>US$200 de crédito gratis.</b></li>
+          <li><b>OpenAI</b>: gpt-4o-mini-transcribe $0,003/min + gpt-4o-mini-tts (13 voces e <code>instructions</code> para el tono).</li>
+          <li>Es lo <b>más anónimo</b>: no pasa nada de tu voz. Pero se pierden la risa y la emoción, y un error de transcripción cambia lo que dijiste.</li>
+          <li>Ventaja extra: el texto transcrito puede mostrarse como subtítulo de la nota.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h3>Anonimato: qué se filtra con cada motor</h3>
+      <div class="table-wrap" style="border:none;background:none"><table style="min-width:600px">
+        <tr><th></th><th>Timbre</th><th>Tono</th><th>Ritmo / acento / muletillas</th><th>Risa / emoción</th><th>Palabras</th></tr>
+        <tr><td>🎛️ DSP (Praat, Rubber Band)</td><td>Cambia parcialmente</td><td>Cambia</td><td>Pasan</td><td>Pasan</td><td>Pasan</td></tr>
+        <tr><td>🧠 IA speech-to-speech</td><td><b>Cambia del todo</b></td><td>Cambia</td><td>Pasan</td><td>Pasan</td><td>Pasan</td></tr>
+        <tr><td>📝 Voz → texto → voz</td><td><b>Cambia del todo</b></td><td><b>Cambia del todo</b></td><td><b>Se pierde</b></td><td><b>Se pierde</b></td><td>Pasan (con errores)</td></tr>
+      </table></div>
+      <p class="lead" style="margin:8px 0 0">En un juego de deducción, que se filtren un poco el ritmo y las muletillas <b>no es malo</b>: es una pista más, igual que en el chat de texto. Lo que importa es que el timbre no delate a nadie a la primera.</p>
+    </div>
+  </section>
+
+  <section id="transporte">
+    <h2>Transporte del audio</h2>
+    <div class="grid3">
+      <div class="card"><h3>Colyseus / WebSocket <span class="tag ok">para clips</span></h3><ul class="clean">
+        <li>Ya existe y funciona en Render. Un clip de 5 s en opus pesa ~20 KB; se manda como binario (<code>Uint8Array</code>).</li>
+        <li>Solo hay que subir <code>maxPayload</code> del <code>WebSocketTransport</code> (p. ej. a 1 MB).</li>
+        <li>Para audio continuo no conviene: por TCP hay cortes y jitter.</li>
+      </ul></div>
+      <div class="card"><h3>LiveKit Cloud <span class="tag ok">para tiempo real rápido</span></h3><ul class="clean">
+        <li>Plan Build gratis: 5.000 participante-min y 1.000 min de agente al mes. Después, $0,0005 por participante-min y $0,01 por minuto de agente.</li>
+        <li>El agente Python lee el audio con <code>AudioStream.from_track</code>, lo modula y lo republica con <code>AudioSource</code> + <code>publish_track</code>.</li>
+        <li>No hay un voice changer de ejemplo: son ~100–200 líneas propias.</li>
+      </ul></div>
+      <div class="card"><h3>Autoalojado <span class="tag meh">la meta final</span></h3><ul class="clean">
+        <li><b>LiveKit OSS</b> o <b>mediasoup</b> en un VPS (Hetzner ~€5,5/mes, DigitalOcean $6–24 <span class="tag unv">precios de terceros</span>).</li>
+        <li>Necesita UDP (LiveKit usa 50000–60000/udp, y además 7880/7881 y TURN 3478/5349). <b>Render no deja pasar UDP</b>, así que el media server va en el VPS.</li>
+        <li>Una VPS de 2–4 vCPU debería aguantar 12 flujos con DSP <span class="tag unv">estimado, sin prueba de carga</span>.</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <section id="arq">
+    <h2>Arquitectura de la recomendación (A + B)</h2>
+    <div class="flow">
+      <div class="box c"><b>🎙️ Cliente</b>MediaRecorder (Chrome: webm/opus · Safari: mp4/aac). Mantener para grabar, máx. 15 s</div>
+      <div class="arrow">→</div>
+      <div class="box s"><b>🟨 Colyseus (Render)</b><code>voice</code> binario → valida fase, cuota y duración → busca el <b>preset del cuerpo</b></div>
+      <div class="arrow">→</div>
+      <div class="box s"><b>🔧 Normalizar</b>ffmpeg → wav mono 24 kHz</div>
+      <div class="arrow">→</div>
+      <div class="box x"><b>🎛️ / 🧠 / 📝 Motor</b>Praat (sidecar Python) · ElevenLabs · Deepgram</div>
+      <div class="arrow">→</div>
+      <div class="box c"><b>🔊 Destinatarios</b>Reciben solo el clip convertido (opus/mp3) como nota de voz</div>
+    </div>
+    <div class="grid2" style="margin-top:14px">
+      <pre>// Interfaz común del server (idea)
+interface VoiceEngine {
+  id: "praat" | "elevenlabs" | "deepgram";
+  convert(wav: Buffer, preset: VoicePreset): Promise&lt;{ audio: Buffer; mime: string; text?: string }&gt;;
+}
+type VoicePreset = {
+  id: "H1" | "H2" | "M1" | "M2";
+  praat: { formantRatio: number; pitchMedianHz: number };
+  elevenVoiceId: string;   // voz de la Voice Library
+  deepgramVoice: string;   // p. ej. "aura-2-celeste-es"
+};</pre>
+      <div class="card"><h3>Detalles que importan</h3><ul class="clean">
+        <li><b>Praat es Python</b>: un micro-servicio chico (FastAPI + parselmouth) al lado del server Node, o un <code>child_process</code> que lo llame. En Render puede ser un segundo servicio o una imagen Docker.</li>
+        <li><b>El preset depende del cuerpo</b>, nunca de la mente, y lo elige el server.</li>
+        <li><b>El clip crudo solo lo ve el server</b>: no se guarda ni se reenvía. Solo viaja el convertido.</li>
+        <li><b>Las API keys</b> (ElevenLabs, Deepgram) viven en el server, nunca en el cliente.</li>
+        <li>Límite de tasa por jugador y duración máxima, para no quemar créditos.</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <section id="presupuesto">
+    <h2>💸 Cómo gastar los ~US$20</h2>
+    <div class="table-wrap"><table style="min-width:600px">
+      <tr><th>Qué</th><th>Costo</th><th>Qué te da</th></tr>
+      <tr><td>🎛️ Praat en tu server</td><td>$0</td><td>Partidas ilimitadas con el motor clásico</td></tr>
+      <tr><td>📝 Deepgram</td><td>$0 (US$200 de crédito)</td><td>~170 partidas con el motor anónimo</td></tr>
+      <tr><td>🧠 ElevenLabs Creator, primer mes</td><td><b>$11</b></td><td>~121 min ≈ 3 partidas completas con IA natural (más si solo se usa en la noche)</td></tr>
+      <tr><td>Reserva (OpenAI, fal Chatterbox o un par de horas de GPU en RunPod)</td><td>~$5–9</td><td>Probar un cuarto motor o el tiempo real con RVC</td></tr>
+      <tr><td><b>Total</b></td><td><b>≈ $11–20</b></td><td>Varias noches de prueba con amigos comparando los 3 motores</td></tr>
+    </table></div>
+    <p class="lead" style="margin-top:8px">Si las notas de voz se usan solo en el chat privado, que dura ~90 s, cada jugador habla bastante menos de 3 min por partida, y el presupuesto de ElevenLabs alcanza para más partidas.</p>
+  </section>
+
+  <section id="plan">
+    <h2>Plan</h2>
+    <div class="table-wrap"><table style="min-width:640px">
+      <tr><th>Paso</th><th>Qué</th><th>Esfuerzo</th><th>Costo</th></tr>
+      <tr class="rec"><td>1</td><td>🎙️ Notas de voz en el chat privado (grabar, subir por Colyseus, reproducir), con el motor 🎛️ Praat y presets por cuerpo</td><td>~2 días</td><td>$0</td></tr>
+      <tr class="rec"><td>2</td><td>Enchufar 🧠 ElevenLabs y 📝 Deepgram detrás de la misma interfaz y agregar el selector de motor en el lobby</td><td>+1 día</td><td>~$11</td></tr>
+      <tr><td>3</td><td>Probar con amigos: ¿se reconoce a la gente? ¿cuál motor da más risa? ¿las notas mejoran el juego?</td><td>1–2 noches</td><td>—</td></tr>
+      <tr><td>4</td><td>Si gusta: notas de voz también en el chat global y en El Hilo (responder con audio)</td><td>+1 día</td><td>—</td></tr>
+      <tr><td>5</td><td>Si hace falta conversación en vivo: LiveKit + agente con DSP (Cloud gratis → después un VPS propio)</td><td>4–7 días</td><td>$0–24/mes</td></tr>
+      <tr class="no"><td>6</td><td>Tiempo real con IA: RVC en GPU propia o alquilada</td><td>1–2 semanas</td><td>GPU</td></tr>
+    </table></div>
+  </section>
+
+  <section id="riesgos">
+    <h2>Riesgos</h2>
+    <div class="grid2">
+      <div class="card"><ul class="clean">
+        <li><b>Formatos:</b> Chrome graba webm/opus y Safari mp4/aac (Safari 18.4+ también webm, pero graba mp4 por defecto). Se resuelve con <code>isTypeSupported()</code> en el cliente y ffmpeg en el server.</li>
+        <li><b>Espera de 1–3 s con IA:</b> en una nota de voz es aceptable (como WhatsApp); en una llamada no lo sería.</li>
+        <li><b>Micrófono en iPhone:</b> pide permiso con un toque. La primera vez hay que explicarlo.</li>
+      </ul></div>
+      <div class="card"><ul class="clean">
+        <li><b>Privacidad:</b> la voz real pasa por el server (y por el proveedor, si se usa IA). Hay que avisarlo en el lobby y no guardar nada.</li>
+        <li><b>Voces:</b> usar solo voces sintéticas o con licencia, nunca clonar a personas reales.</li>
+        <li><b>Datos sin verificar:</b> latencia real de ElevenLabs y Deepgram con clips de 5 s, precio por minuto de gpt-4o-mini-tts, cierre de Cartesia VC, precios de VPS y GPU de terceros.</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <section id="fuentes">
+    <h2>Fuentes</h2>
+    <ul class="clean" style="font-size:13px;columns:2;column-gap:28px;display:block">
+      <li><a href="https://www.fon.hum.uva.nl/praat/manual/Sound__Change_gender___.html">Praat · Change gender</a> · <a href="https://github.com/YannickJadoul/Parselmouth">Parselmouth</a></li>
+      <li><a href="https://elevenlabs.io/docs/api-reference/speech-to-speech/convert">ElevenLabs STS</a> · <a href="https://elevenlabs.io/pricing">precios</a> · <a href="https://elevenlabs.io/pricing/api">API</a></li>
+      <li><a href="https://elevenlabs.io/docs/help-center/product/voices/my-voices/what-are-default-voices">ElevenLabs · voces Default que caducan</a></li>
+      <li><a href="https://deepgram.com/pricing">Deepgram · precios</a> · <a href="https://developers.deepgram.com/docs/tts-models">voces Aura-2</a></li>
+      <li><a href="https://developers.openai.com/api/docs/pricing">OpenAI · precios</a> · <a href="https://developers.openai.com/api/docs/guides/text-to-speech">TTS</a></li>
+      <li><a href="https://fal.ai/models/fal-ai/chatterbox/speech-to-speech">fal · Chatterbox STS</a></li>
+      <li><a href="https://replicate.com/pseudoram/rvc-v2">Replicate · RVC v2</a></li>
+      <li><a href="https://docs.livekit.io/transport/media/raw-tracks/">LiveKit · raw tracks</a> · <a href="https://livekit.com/pricing">precios</a> · <a href="https://docs.livekit.io/transport/self-hosting/ports-firewall/">puertos</a></li>
+      <li><a href="https://www.runpod.io/pricing">RunPod · precios</a> · <a href="https://modal.com/pricing">Modal · precios</a></li>
+      <li><a href="https://github.com/w-okada/voice-changer">w-okada voice-changer</a></li>
+      <li><a href="https://breakfastquay.com/rubberband/">Rubber Band</a> · <a href="https://github.com/Signalsmith-Audio/signalsmith-stretch">Signalsmith Stretch</a></li>
+      <li><a href="https://docs.colyseus.io/server/transport/ws">Colyseus · WebSocketTransport</a></li>
+      <li><a href="https://webkit.org/blog/11353/mediarecorder-api/">WebKit · MediaRecorder</a> · <a href="https://developer.mozilla.org/en-US/docs/Web/API/AudioWorklet">MDN · AudioWorklet</a></li>
+      <li><a href="https://feedback.render.com/features/p/support-udp">Render · UDP (pedido abierto)</a></li>
+      <li><a href="https://docs.agora.io/en/extensions-marketplace/develop/integrate/dubbing-voice-changer">Agora · Dubbing AI (sin Web)</a></li>
+    </ul>
+  </section>
+</div>
+<script>
+// Maqueta: notas de voz con onda y botón de play (sin audio real).
+const note = (voice, secs, mine) => {
+  const bars = Array.from({ length: 28 }, () => `<i style="height:${6 + Math.round(Math.random() * 20)}px"></i>`).join("");
+  return `<div class="vnote"><button class="play" type="button">▶</button><div style="flex:1"><div class="wave">${bars}</div>
+    <div class="vmeta"><span>0:${String(secs).padStart(2, "0")}</span><span class="vvoice">🎙️ ${voice}</span></div></div></div>`;
+};
+document.getElementById("n1").innerHTML = note("Hombre 1", 6, false);
+document.getElementById("n2").innerHTML = note("Mujer 2", 4, true);
+document.querySelectorAll(".vnote .play").forEach((b) => (b.onclick = () => {
+  const v = b.closest(".vnote");
+  const on = !v.classList.contains("playing");
+  document.querySelectorAll(".vnote").forEach((x) => { x.classList.remove("playing"); x.querySelector(".play").textContent = "▶"; });
+  if (on) { v.classList.add("playing"); b.textContent = "⏸"; setTimeout(() => { v.classList.remove("playing"); b.textContent = "▶"; }, 3000); }
+}));
+const mic = document.getElementById("mic");
+const start = () => mic.classList.add("rec");
+const stop = () => {
+  if (!mic.classList.contains("rec")) return;
+  mic.classList.remove("rec");
+  const el = document.createElement("div");
+  el.className = "dmb mine";
+  el.innerHTML = note("Mujer 2", 3, true);
+  document.getElementById("msgs").appendChild(el);
+  el.querySelector(".play").onclick = () => { el.querySelector(".vnote").classList.toggle("playing"); };
+};
+mic.addEventListener("pointerdown", start); mic.addEventListener("pointerup", stop); mic.addEventListener("pointerleave", stop);
+</script>
+</body>
+</html>

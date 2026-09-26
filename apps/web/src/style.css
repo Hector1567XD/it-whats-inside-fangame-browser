@@ -664,3 +664,24 @@ main > .spectator-note { margin-top: 12px; }
 .cg-name { fill: #fff; font-family: "Nunito", system-ui, sans-serif; font-weight: 800; font-size: 14px; }
 .cg-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
 .cg-list li { background: rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 6px 10px; }
+
+/* ---------- voz del lobby ---------- */
+.voice-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; background: rgba(0, 0, 0, 0.18); border-radius: 16px; padding: 8px 10px; }
+.voice-bar .chip.on { background: var(--accent); color: #103a1a; border-color: #fff; }
+.voice-bar .chip.off { background: var(--red); border-color: #fff; }
+.voice-bar .chip.warn { background: var(--yellow); color: var(--ink); border-color: #fff; animation: pop 0.6s both; }
+.voice-note { font-size: 13px; font-weight: 800; color: var(--muted); }
+.voice-note.bad { color: #ffc0ca; }
+.voice-ring { display: inline-flex; border-radius: 50%; box-shadow: 0 0 0 3px transparent; transition: box-shadow 0.12s; }
+.voice-ring.speaking { box-shadow: 0 0 0 3px var(--accent), 0 0 14px 4px rgba(94, 227, 122, 0.7); }
+.voice-icon { font-size: 14px; opacity: 0.85; }
+.voice-setup { display: flex; flex-direction: column; gap: 12px; text-align: center; align-items: center; }
+.voice-setup h2 { margin: 0; }
+.voice-setup p { margin: 0; }
+.voice-setup .btn.big small { font-family: "Nunito", system-ui, sans-serif; font-size: 14px; font-weight: 800; opacity: 0.8; }
+.voice-setup .row { justify-content: center; flex-wrap: wrap; }
+.voice-setup .chip.ghost { background: none; border-color: transparent; color: var(--muted); }
+.voice-pick { grid-template-columns: repeat(3, 1fr); }
+.btn.recording { background: var(--red); color: #fff; box-shadow: 0 5px 0 #a3182f; animation: recPulse 1s infinite; }
+@keyframes recPulse { 50% { transform: scale(1.03); } }
+@media (max-width: 420px) { .voice-pick { grid-template-columns: 1fr; } }

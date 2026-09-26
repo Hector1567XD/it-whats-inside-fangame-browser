@@ -523,7 +523,13 @@ function buildRobot() {
   chainOut.gain.value = 2.5;
 }
 
-document.querySelectorAll("#presetRow [data-p]").forEach((b) => (b.onclick = () => applyPreset(b.dataset.p).catch((e) => { $("status").textContent = "Error: " + e.message; })));
+document.querySelectorAll("#presetRow [data-p]").forEach((b) => (b.onclick = () => applyPreset(b.dataset.p).catch((e) => {
+  stretch = null;
+  // Chrome no deja cargar AudioWorklets desde blob: cuando la página se abrió con doble clic (file://).
+  $("status").textContent = location.protocol === "file:"
+    ? "⚠️ Abriste el archivo con doble clic: el navegador bloquea los worklets en file://. Sírvelo con \"npx serve mockups\" (o \"python3 -m http.server\" dentro de mockups) y abre http://localhost:3000/voz-v3.html. El 🤖 Robot sí funciona así."
+    : "Error: " + e.message;
+})));
 $("stop").onclick = () => {
   disconnectAll(); current = null;
   document.querySelectorAll("#presetRow [data-p]").forEach((b) => b.classList.remove("on"));

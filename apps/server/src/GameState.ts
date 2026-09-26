@@ -17,6 +17,10 @@ export class Player extends Schema {
   @type("boolean") skipVote = false; // votó por saltar la fase actual
   @type("boolean") out = false; // su MENTE fue expulsada: es espectador
   @type("boolean") bodyOut = false; // su CUERPO salió del juego
+  // Voz del lobby (solo perfil, no toca mecánicas). El F0 se queda en el cliente.
+  @type("string") voice = ""; // "" (sin voz) | "listen" (solo escucha) | "fem" | "masc" | "neutral"
+  @type("number") voiceVariant = 0; // 0, 1, 2… entre quienes eligieron el mismo tipo, por orden de llegada
+  @type("boolean") micOn = false;
 }
 
 export type Mode = "classic" | "all" | "immutable" | "still";
@@ -35,6 +39,7 @@ export class Settings extends Schema {
   @type("number") voteSeconds = 30;
   @type("number") maxEjections = 1; // 0 = sin límite
   @type("boolean") unmaskSame = false; // (Clásico) se puede desenmascarar a quien no cambió
+  @type("number") voiceWalkie = 0; // 📻 0 = off, 1 = poquito, 2 = bastante (voz del lobby)
 }
 
 /** Respuesta en El Hilo (un "cotorreo" en Cotorra 🦜). */

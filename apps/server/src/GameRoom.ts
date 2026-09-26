@@ -71,6 +71,9 @@ const PLAYING: Phase[] = ["SWAP", "QUESTION", "THREAD", "DAY", "NIGHT", "UNMASK"
 const SKIPPABLE: Phase[] = ["QUESTION", "THREAD", "DAY", "NIGHT", "UNMASK", "VOTE", "GUESS", "FINAL_VOTE"];
 const SUBMIT_PHASES: Phase[] = ["QUESTION", "UNMASK", "VOTE", "GUESS", "FINAL_VOTE"];
 const REACTIONS = ["😂", "😭", "😊", "❤️", "😡", "👏", "🤔", "👀", "🤡"];
+const VOICES = ["", "listen", "fem", "masc", "neutral"];
+const RTC_MAX_BYTES = 20_000; // una oferta SDP de audio pesa ~3-6 KB
+const RTC_PER_SECOND = 50;
 
 export class GameRoom extends Room<GameState> {
   maxClients = MAX_PLAYERS * 2; // holgura para que alguien retome su lugar aunque la sala esté llena
@@ -111,6 +114,10 @@ export class GameRoom extends Room<GameState> {
   private winner: "changers" | "immutable" | null = null;
   private lastReact = new Map<string, number>();
   private lastResults: ResultsPayload | null = null;
+  // Voz del lobby: orden de llegada (para las variantes) y rate limit de la señalización WebRTC.
+  private joinSeq = new Map<string, number>();
+  private nextJoin = 0;
+  private rtcWindow = new Map<string, { start: number; count: number }>();
 
   onCreate(opts: { mode?: string }) {
     this.roomId = newCode();
@@ -279,6 +286,31 @@ export class GameRoom extends Room<GameState> {
       this.broadcast("reaction", { target, emoji });
     });
 
+    // 🎙️ Voz del lobby: tipo de voz y micrófono. Es solo un perfil: se acepta en cualquier fase.
+    this.onMessage("voiceProfile", (client, msg: { voice?: string; micOn?: boolean }) => {
+      const p = this.state.players.get(this.pid(client));
+      if (!p || !msg || typeof msg !== "object") return;
+      if (typeof msg.voice === "string" && VOICES.includes(msg.voice)) p.voice = msg.voice;
+      if (typeof msg.micOn === "boolean") p.micOn = msg.micOn && !["", "listen"].includes(p.voice);
+      this.assignVoiceVariants();
+    });
+
+    // Señalización WebRTC (malla P2P del lobby): el server solo reenvía ofertas, respuestas e ICE.
+    this.onMessage("rtc", (client, msg: { to?: string; data?: Record<string, unknown> }) => {
+      const me = this.pid(client);
+      const to = msg?.to;
+      const data = msg?.data;
+      if (this.state.phase !== "LOBBY" || typeof to !== "string" || to === me || !data || typeof data !== "object") return;
+      if (!this.state.players.get(to)?.connected || !this.state.players.has(me)) return;
+      if (!("description" in data || "candidate" in data || "hello" in data)) return;
+      if (JSON.stringify(data).length > RTC_MAX_BYTES) return;
+      const now = Date.now();
+      const w = this.rtcWindow.get(me);
+      if (!w || now - w.start >= 1000) this.rtcWindow.set(me, { start: now, count: 1 });
+      else if (++w.count > RTC_PER_SECOND) return;
+      this.clientOf(to)?.send("rtc", { from: me, data });
+    });
+
     this.onMessage("settings", (client, patch: Partial<Record<keyof Settings, number | string | boolean>>) => {
       if (!this.isHost(client) || this.state.phase !== "LOBBY" || !patch || typeof patch !== "object") return;
       const s = this.state.settings;
@@ -295,6 +327,7 @@ export class GameRoom extends Room<GameState> {
       if ("maxEjections" in patch) s.maxEjections = clamp(patch.maxEjections, 0, MAX_PLAYERS, s.maxEjections);
       if (typeof patch.earlyVote === "boolean") s.earlyVote = patch.earlyVote;
       if (typeof patch.unmaskSame === "boolean") s.unmaskSame = patch.unmaskSame && s.mode === "classic";
+      if ("voiceWalkie" in patch) s.voiceWalkie = clamp(patch.voiceWalkie, 0, 2, s.voiceWalkie);
     });
 
     this.onMessage("start", (client) => {
@@ -362,6 +395,8 @@ export class GameRoom extends Room<GameState> {
     p.avatar = validAvatar(opts?.avatar) ?? `${AVATAR_STYLES[0]}:${name}`;
     this.bind(client, p.id);
     this.state.players.set(p.id, p);
+    this.joinSeq.set(p.id, this.nextJoin++);
+    this.assignVoiceVariants();
     if (!this.state.hostId) this.state.hostId = p.id;
     this.broadcast("joined", { id: p.id }, { except: client });
     this.syncMeta();
@@ -396,6 +431,9 @@ export class GameRoom extends Room<GameState> {
 
     if (this.state.phase === "LOBBY") {
       this.state.players.delete(id);
+      this.joinSeq.delete(id);
+      this.rtcWindow.delete(id);
+      this.assignVoiceVariants();
       this.reassignHost();
       this.syncMeta();
       return;
@@ -924,6 +962,7 @@ export class GameRoom extends Room<GameState> {
     for (const p of [...this.state.players.values()]) {
       if (!p.connected) {
         this.state.players.delete(p.id);
+        this.joinSeq.delete(p.id);
         this.pendingReconnect.get(p.id)?.reject(new Error("removed"));
         this.pendingReconnect.delete(p.id);
       } else {
@@ -940,12 +979,29 @@ export class GameRoom extends Room<GameState> {
     this.state.cycle = 0;
     this.state.posts.clear();
     this.state.question = "";
+    this.assignVoiceVariants();
     this.setPhase("LOBBY", 0);
     this.reassignHost();
     this.clients.forEach((c) => this.sendIdentity(c));
   }
 
   // ---------------- helpers ----------------
+
+  /** Variantes de voz: entre quienes tienen el mismo tipo, 0, 1, 2… por orden de llegada. */
+  private assignVoiceVariants() {
+    const byType = new Map<string, Player[]>();
+    for (const p of this.state.players.values()) {
+      if (["", "listen"].includes(p.voice)) {
+        p.voiceVariant = 0;
+        continue;
+      }
+      byType.set(p.voice, [...(byType.get(p.voice) ?? []), p]);
+    }
+    for (const list of byType.values()) {
+      list.sort((a, b) => (this.joinSeq.get(a.id) ?? 0) - (this.joinSeq.get(b.id) ?? 0));
+      list.forEach((p, i) => (p.voiceVariant = i));
+    }
+  }
 
   /** Todo lo privado que un cliente necesita (también sirve para reconectar). */
   private sendIdentity(client: Client) {

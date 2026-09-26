@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MindSwap · Voz v5</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Nunito:wght@600;800&display=swap" rel="stylesheet" />
+<style>
+/* Experimento v5: cambiador de voz en el navegador con varios motores. No toca el juego. */
+:root { --line: rgba(255, 255, 255, 0.18); --muted: rgba(255, 255, 255, 0.72); --accent: #5ee37a; --accent-d: #2fae4c; --yellow: #ffd23d; --red: #ff3d5a; --ink: #2a0d4d; }
+* { box-sizing: border-box; }
+html { background: #1a0838; }
+body { margin: 0; font-family: "Nunito", system-ui, sans-serif; color: #fff; background: linear-gradient(135deg, #1d0b4d, #3b1270 60%, #1a0838); background-attachment: fixed; min-height: 100vh; }
+h1, h2, h3 { font-family: "Lilita One", sans-serif; font-weight: 400; letter-spacing: 0.5px; }
+button { font: inherit; }
+.page { max-width: 1000px; margin: 0 auto; padding: 20px 16px 60px; display: flex; flex-direction: column; gap: 16px; }
+.hero h1 { margin: 0; font-size: clamp(30px, 5vw, 44px); text-shadow: 0 4px 0 var(--ink); transform: rotate(-1.5deg); }
+.hero h1 span { color: var(--yellow); }
+.hero p { margin: 6px 0 0; color: var(--muted); line-height: 1.45; }
+.banner { border-radius: 16px; padding: 10px 14px; font-weight: 800; font-size: 14px; line-height: 1.4; }
+.banner.file { background: rgba(255, 210, 61, 0.16); border: 2px solid var(--yellow); }
+.banner.http { background: rgba(94, 227, 122, 0.16); border: 2px solid var(--accent); }
+.banner a { color: var(--yellow); }
+.card { background: rgba(10, 8, 40, 0.55); border: 2px solid var(--line); border-radius: 20px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.card h2 { margin: 0; font-size: 22px; }
+.card h2 small { font-family: "Nunito"; font-size: 13px; color: var(--muted); font-weight: 800; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.btn { font-weight: 800; border: 3px solid #fff; border-radius: 14px; padding: 8px 14px; cursor: pointer; background: rgba(255, 255, 255, 0.1); color: #fff; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn.on { background: var(--yellow); color: var(--ink); }
+.btn.go { background: var(--accent); color: #103a1a; }
+.btn.rec { background: var(--red); animation: pulse 1s infinite; }
+.btn.stop { background: var(--red); }
+@keyframes pulse { 50% { transform: scale(1.05); } }
+.engines { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+.engine { text-align: left; border: 3px solid var(--line); border-radius: 16px; padding: 10px 12px; background: rgba(255, 255, 255, 0.06); color: #fff; cursor: pointer; display: flex; flex-direction: column; gap: 3px; }
+.engine b { font-size: 16px; }
+.engine small { color: var(--muted); font-size: 12px; line-height: 1.3; }
+.engine .st { font-size: 11px; font-weight: 800; }
+.engine.on { border-color: var(--yellow); background: rgba(255, 210, 61, 0.12); }
+.engine.off { opacity: 0.45; }
+.ok { color: #b8f5c6; } .warn { color: #ffe9a3; } .bad { color: #ffc0ca; }
+.sliders { display: grid; grid-template-columns: auto 1fr auto; gap: 8px 12px; align-items: center; font-size: 14px; font-weight: 800; }
+.sliders input[type=range] { width: 100%; }
+.sliders b { min-width: 64px; text-align: right; color: var(--yellow); }
+.meter { height: 10px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.meter div { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--yellow), var(--red)); transition: width 0.05s; }
+.status { font-size: 14px; color: var(--muted); min-height: 20px; }
+.readout { display: flex; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.readout span { background: rgba(0, 0, 0, 0.3); border-radius: 10px; padding: 3px 10px; }
+.readout b { color: var(--yellow); }
+.check { display: flex; gap: 8px; align-items: center; font-weight: 800; font-size: 14px; cursor: pointer; }
+.results { width: 100%; border-collapse: collapse; font-size: 13px; }
+.results td, .results th { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; }
+.results th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="hero">
+    <h1>MindSwap · <span>Voz v5</span></h1>
+    <p>Mini experimento: cambiar la voz <b>en el navegador</b> con varios motores y ver cuál funciona y cuál suena mejor. Los motores 1, 2 y 4 <b>no usan worklets</b>, así que andan incluso si abres el archivo con doble clic. No toca el juego.</p>
+  </div>
+  <div id="originBanner"></div>
+
+  <div class="card">
+    <h2>① Tu voz <small>grabar es lo más cómodo: no necesitas audífonos</small></h2>
+    <div class="row">
+      <button class="btn go" id="recBtn">⏺️ Grabar 5 s</button>
+      <button class="btn" id="playBtn" disabled>▶ Reproducir con la voz elegida</button>
+      <button class="btn" id="origBtn" disabled>🙂 Oír el original</button>
+      <span style="color:var(--muted)">o</span>
+      <button class="btn" id="liveBtn">🎧 En vivo (con audífonos)</button>
+      <button class="btn stop" id="stopBtn">⏹ Parar</button>
+    </div>
+    <div class="readout"><span>Tu tono base: <b id="f0">— (se mide al grabar)</b></span><span>Motor: <b id="rEngine">—</b></span><span>Tono aplicado: <b id="rSemi">—</b></span></div>
+    <div class="meter"><div id="meter"></div></div>
+    <div class="status" id="status">Graba una frase como "hola, soy yo y esta es mi voz de verdad".</div>
+  </div>
+
+  <div class="card">
+    <h2>② Motor</h2>
+    <div class="engines" id="engines"></div>
+  </div>
+
+  <div class="card">
+    <h2>③ Voz</h2>
+    <div class="row" id="presets">
+      <button class="btn" data-p="H1">👨 Hombre 1</button>
+      <button class="btn" data-p="H2">🧔 Hombre 2</button>
+      <button class="btn" data-p="M1">👩 Mujer 1</button>
+      <button class="btn" data-p="M2">👱‍♀️ Mujer 2</button>
+      <button class="btn" data-p="robot">🤖 Robot</button>
+    </div>
+    <div class="sliders">
+      <span>Tono</span><input type="range" id="semi" min="-12" max="12" step="0.5" value="0"><b id="semiV">0 st</b>
+      <span>Timbre (grave ↔ brillante)</span><input type="range" id="tilt" min="-9" max="9" step="1" value="0"><b id="tiltV">0 dB</b>
+      <span>Formantes (solo motor 3)</span><input type="range" id="form" min="-6" max="6" step="0.5" value="0"><b id="formV">0 st</b>
+    </div>
+    <label class="check"><input type="checkbox" id="walkie"> 📻 Filtro walkie-talkie encima (disimula más)</label>
+    <p class="status" style="margin:0">Los presets calculan el tono a partir de <b>tu</b> tono base para llegar a ~105 Hz (H1), ~135 Hz (H2), ~200 Hz (M1) o ~240 Hz (M2). Después puedes mover los sliders a mano.</p>
+  </div>
+
+  <div class="card">
+    <h2>④ ¿Qué funcionó en tu navegador? <small>se llena solo mientras pruebas</small></h2>
+    <table class="results"><thead><tr><th>Motor</th><th>Resultado</th><th>Detalle</th></tr></thead><tbody id="results"></tbody></table>
+  </div>
+</div>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const isFile = location.protocol === "file:";
+$("originBanner").innerHTML = isFile
+  ? `<div class="banner file">📂 Estás en <b>file://</b> (doble clic). El motor 3 (Signalsmith, usa worklet) no funciona aquí; los demás sí. Para probarlo todo abre <a href="http://localhost:5640/voz-v5.html">http://localhost:5640/voz-v5.html</a> (si ese servidor sigue encendido) o corre <code>npx serve mockups</code>.</div>`
+  : `<div class="banner http">🌐 Estás en <b>${location.origin}</b>: pueden funcionar los 4 motores.</div>`;
+
+// ---------------- motores ----------------
+const ENGINES = {
+  native: { name: "1 · Nativo (delays)", desc: "Pitch shifter hecho con DelayNodes de Web Audio. Sin librerías ni worklets. Mueve tono y timbre juntos.", ok: "funciona en file://" },
+  tone: { name: "2 · Tone.js PitchShift", desc: "Librería conocida (jsDelivr). Misma técnica de delays, otra implementación.", ok: "funciona en file://" },
+  ss: { name: "3 · Signalsmith Stretch", desc: "WASM + AudioWorklet. Mueve tono y formantes por separado: la más natural.", ok: "solo http(s)" },
+  robot: { name: "4 · Robot (vocoder)", desc: "Todos suenan al mismo robot. Nativo, sin worklets.", ok: "funciona en file://" },
+};
+let engine = "native";
+function renderEngines() {
+  $("engines").innerHTML = Object.entries(ENGINES).map(([k, e]) => `
+    <button class="engine${k === engine ? " on" : ""}${k === "ss" && isFile ? " off" : ""}" data-e="${k}">
+      <b>${e.name}</b><small>${e.desc}</small>
+      <span class="st ${k === "ss" && isFile ? "bad" : k === "ss" ? "warn" : "ok"}">${k === "ss" && isFile ? "✖ no disponible en file://" : "✔ " + e.ok}</span>
+    </button>`).join("");
+}
+renderEngines();
+$("engines").addEventListener("click", (e) => {
+  const b = e.target.closest(".engine"); if (!b) return;
+  engine = b.dataset.e;
+  if (engine === "robot") setPresetUI("robot");
+  renderEngines(); restart();
+});
+
+const results = {};
+function report(k, ok, detail) {
+  results[k] = { ok, detail };
+  $("results").innerHTML = Object.entries(results).map(([key, r]) =>
+    `<tr><td>${ENGINES[key].name}</td><td class="${r.ok ? "ok" : "bad"}">${r.ok ? "✔ funcionó" : "✖ falló"}</td><td>${r.detail}</td></tr>`).join("");
+}
+
+// ---------------- audio base ----------------
+let ctx, micStream, micSrc, recorded = null, current = null, input = null, raf = 0, base = 150;
+let post, outGain;
+async function ensureCtx() {
+  if (ctx) return ctx.resume();
+  ctx = new AudioContext();
+  // post-proceso común: timbre (shelves) + walkie opcional + compresor + medidor
+  post = ctx.createGain();
+  outGain = ctx.createGain();
+  const comp = ctx.createDynamicsCompressor();
+  outGain.connect(comp); comp.connect(ctx.destination);
+  const an = ctx.createAnalyser(); an.fftSize = 512; outGain.connect(an);
+  const buf = new Uint8Array(512);
+  const tick = () => {
+    an.getByteTimeDomainData(buf);
+    let p = 0; for (const v of buf) p = Math.max(p, Math.abs(v - 128));
+    $("meter").style.width = Math.min(100, p / 1.28) + "%";
+    raf = requestAnimationFrame(tick);
+  };
+  tick();
+}
+async function ensureMic() {
+  await ensureCtx();
+  if (micStream) return;
+  micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+  micSrc = ctx.createMediaStreamSource(micStream);
+}
+
+/** Cadena de salida: timbre + walkie. Se reconstruye en cada cambio. */
+function buildPost(links) {
+  const low = ctx.createBiquadFilter(); low.type = "lowshelf"; low.frequency.value = 300;
+  const high = ctx.createBiquadFilter(); high.type = "highshelf"; high.frequency.value = 2800;
+  const t = +$("tilt").value;
+  low.gain.value = -t * 0.7; high.gain.value = t;
+  link(links, post, low); link(links, low, high);
+  let last = high;
+  if ($("walkie").checked) {
+    const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 450;
+    const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 2800;
+    const sh = ctx.createWaveShaper(); const c = new Float32Array(1024);
+    for (let i = 0; i < 1024; i++) { const x = i / 511.5 - 1; c[i] = Math.tanh(3 * x) / Math.tanh(3); }
+    sh.curve = c;
+    link(links, last, hp); link(links, hp, lp); link(links, lp, sh); last = sh;
+  }
+  link(links, last, outGain);
+}
+function link(links, a, b) { a.connect(b); links.push([a, b]); }
+function unlinkAll(links, sources) {
+  for (const [a, b] of links) { try { a.disconnect(b); } catch {} }
+  for (const s of sources) { try { s.stop(); } catch {} }
+}
+
+// ---- 1. Nativo: dos líneas de retardo con rampa de sierra y ventanas cruzadas ----
+function engineNative(src, dst, semis, links, sources) {
+  const p = Math.pow(2, semis / 12);
+  if (Math.abs(semis) < 0.05) return link(links, src, dst);
+  const T = 0.08, sr = ctx.sampleRate, len = Math.round(T * sr);
+  const up = p > 1, D = Math.min(0.98, Math.abs(p - 1)) * T;
+  const saw = ctx.createBuffer(1, len, sr), win = ctx.createBuffer(1, len, sr);
+  const s = saw.getChannelData(0), w = win.getChannelData(0);
+  for (let i = 0; i < len; i++) { const x = i / len; s[i] = up ? 1 - x : x; w[i] = Math.sin(Math.PI * x) ** 2; }
+  const t0 = ctx.currentTime + 0.05;
+  for (const off of [0, T / 2]) {
+    const delay = ctx.createDelay(1); delay.delayTime.value = 0.003;
+    const mod = ctx.createBufferSource(); mod.buffer = saw; mod.loop = true;
+    const depth = ctx.createGain(); depth.gain.value = D;
+    const env = ctx.createBufferSource(); env.buffer = win; env.loop = true;
+    const vca = ctx.createGain(); vca.gain.value = 0;
+    link(links, mod, depth); link(links, depth, delay.delayTime);
+    link(links, env, vca.gain);
+    link(links, src, delay); link(links, delay, vca); link(links, vca, dst);
+    mod.start(t0, off); env.start(t0, off);
+    sources.push(mod, env);
+  }
+}
+
+// ---- 2. Tone.js ----
+let Tone = null;
+async function engineTone(src, dst, semis, links, disposers) {
+  if (!Tone) {
+    Tone = await import("https://cdn.jsdelivr.net/npm/tone@15.1.22/+esm");
+    Tone.setContext(ctx);
+  }
+  const ps = new Tone.PitchShift({ pitch: semis, windowSize: 0.08 });
+  const inG = ctx.createGain();
+  link(links, src, inG);
+  Tone.connect(inG, ps);
+  ps.connect(dst);
+  disposers.push(() => { try { ps.dispose(); } catch {} });
+}
+
+// ---- 3. Signalsmith ----
+let SS = null, ssNode = null;
+async function engineSS(src, dst, semis, formant, links) {
+  if (isFile) throw new Error("En file:// el navegador bloquea el worklet (blob:null). Ábrelo por http://localhost.");
+  if (!SS) SS = (await import("https://cdn.jsdelivr.net/npm/signalsmith-stretch@1.3.2/SignalsmithStretch.mjs")).default;
+  if (!ssNode) {
+    ssNode = await Promise.race([
+      SS(ctx),
+      new Promise((_, f) => setTimeout(() => f(new Error("El worklet no respondió en 10 s.")), 10000)),
+    ]);
+  }
+  ssNode.schedule({ active: true, semitones: semis, formantSemitones: formant, formantCompensation: true, formantBaseHz: base });
+  link(links, src, ssNode); link(links, ssNode, dst);
+}
+
+// ---- 4. Robot (vocoder de canales) ----
+function engineRobot(src, dst, links, sources) {
+  const carrier = ctx.createOscillator(); carrier.type = "sawtooth"; carrier.frequency.value = 110;
+  const nb = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate); const d = nb.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  const noise = ctx.createBufferSource(); noise.buffer = nb; noise.loop = true;
+  const ng = ctx.createGain(); ng.gain.value = 0.25;
+  const mix = ctx.createGain();
+  link(links, carrier, mix); link(links, noise, ng); link(links, ng, mix);
+  const curve = new Float32Array(1024); for (let i = 0; i < 1024; i++) curve[i] = Math.abs(i / 511.5 - 1);
+  const out = ctx.createGain(); out.gain.value = 2.5; link(links, out, dst);
+  for (let i = 0; i < 22; i++) {
+    const f = 90 * Math.pow(7000 / 90, i / 21);
+    const mod = ctx.createBiquadFilter(); mod.type = "bandpass"; mod.frequency.value = f; mod.Q.value = 7;
+    const rect = ctx.createWaveShaper(); rect.curve = curve;
+    const env = ctx.createBiquadFilter(); env.type = "lowpass"; env.frequency.value = 35;
+    const eg = ctx.createGain(); eg.gain.value = 10;
+    const car = ctx.createBiquadFilter(); car.type = "bandpass"; car.frequency.value = f; car.Q.value = 7;
+    const vca = ctx.createGain(); vca.gain.value = 0;
+    link(links, src, mod); link(links, mod, rect); link(links, rect, env); link(links, env, eg);
+    link(links, mix, car); link(links, car, vca); link(links, eg, vca.gain); link(links, vca, out);
+  }
+  carrier.start(); noise.start();
+  sources.push(carrier, noise);
+}
+
+// ---------------- montar la cadena ----------------
+async function mount(src) {
+  teardown();
+  const links = [], sources = [], disposers = [];
+  current = { links, sources, disposers };
+  const semis = +$("semi").value, formant = +$("form").value;
+  buildPost(links);
+  const name = ENGINES[engine].name;
+  $("rEngine").textContent = name;
+  $("rSemi").textContent = engine === "robot" ? "robot (fijo)" : `${semis > 0 ? "+" : ""}${semis} st`;
+  try {
+    if (engine === "native") engineNative(src, post, semis, links, sources);
+    else if (engine === "tone") { $("status").textContent = "Cargando Tone.js…"; await engineTone(src, post, semis, links, disposers); }
+    else if (engine === "ss") { $("status").textContent = "Cargando Signalsmith…"; await engineSS(src, post, semis, formant, links); }
+    else engineRobot(src, post, links, sources);
+    report(engine, true, engine === "ss" ? `latencia ${Math.round(ssNode.latency() * 1000)} ms` : "sin errores");
+    $("status").textContent = `✔ ${name} listo.`;
+    return true;
+  } catch (e) {
+    report(engine, false, e.message);
+    $("status").textContent = "✖ " + name + ": " + e.message;
+    return false;
+  }
+}
+function teardown() {
+  if (!current) return;
+  unlinkAll(current.links, current.sources);
+  current.disposers.forEach((f) => f());
+  current = null;
+}
+let playSrc = null, mode = null;
+function stopAll() {
+  try { playSrc?.stop(); } catch {}
+  playSrc = null; mode = null;
+  teardown();
+  ["playBtn", "liveBtn", "origBtn"].forEach((id) => $(id).classList.remove("on"));
+}
+async function restart() {
+  if (mode === "play") return playRecorded();
+  if (mode === "live") return goLive();
+}
+
+// ---------------- grabar / reproducir / en vivo ----------------
+$("recBtn").onclick = async () => {
+  stopAll();
+  try { await ensureMic(); } catch (e) { $("status").textContent = "No se pudo abrir el micrófono: " + e.name; return; }
+  const rec = new MediaRecorder(micStream);
+  const chunks = [];
+  rec.ondataavailable = (e) => chunks.push(e.data);
+  rec.start();
+  $("recBtn").classList.add("rec"); $("recBtn").textContent = "⏺️ Grabando…";
+  let left = 5;
+  $("status").textContent = `Habla… ${left} s`;
+  const iv = setInterval(() => { left--; $("status").textContent = left > 0 ? `Habla… ${left} s` : "Procesando…"; }, 1000);
+  await new Promise((r) => setTimeout(r, 5000));
+  clearInterval(iv);
+  await new Promise((r) => { rec.onstop = r; rec.stop(); });
+  $("recBtn").classList.remove("rec"); $("recBtn").textContent = "⏺️ Grabar de nuevo";
+  try {
+    const blob = new Blob(chunks, { type: rec.mimeType });
+    recorded = await ctx.decodeAudioData(await blob.arrayBuffer());
+  } catch (e) { $("status").textContent = "No se pudo leer la grabación: " + e.message; return; }
+  const f = medianF0(recorded);
+  if (f) { base = f; $("f0").textContent = `${Math.round(f)} Hz`; }
+  else $("f0").textContent = "no detectado (uso 150 Hz)";
+  $("playBtn").disabled = false; $("origBtn").disabled = false;
+  $("status").textContent = "✅ Grabado. Elige motor y voz, y dale ▶.";
+  if (currentPreset) setPresetUI(currentPreset);
+};
+
+async function playRecorded(raw = false) {
+  if (!recorded) return;
+  try { playSrc?.stop(); } catch {}
+  await ensureCtx();
+  mode = raw ? "orig" : "play";
+  $("playBtn").classList.toggle("on", !raw); $("origBtn").classList.toggle("on", raw);
+  const s = ctx.createBufferSource(); s.buffer = recorded;
+  playSrc = s;
+  if (raw) { teardown(); const links = []; current = { links, sources: [], disposers: [] }; link(links, s, outGain); }
+  else if (!(await mount(s))) return;
+  s.onended = () => { if (playSrc === s) { $("playBtn").classList.remove("on"); $("origBtn").classList.remove("on"); mode = null; } };
+  s.start();
+  if (!raw) $("status").textContent = `▶ ${ENGINES[engine].name}${currentPreset ? " · " + (PRESETS[currentPreset]?.name ?? "Robot") : ""}`;
+}
+$("playBtn").onclick = () => playRecorded(false);
+$("origBtn").onclick = () => playRecorded(true);
+
+async function goLive() {
+  try { await ensureMic(); } catch (e) { $("status").textContent = "No se pudo abrir el micrófono: " + e.name; return; }
+  try { playSrc?.stop(); } catch {}
+  mode = "live"; $("liveBtn").classList.add("on");
+  if (await mount(micSrc)) $("status").textContent = `🎧 En vivo con ${ENGINES[engine].name}. Usa audífonos.`;
+}
+$("liveBtn").onclick = goLive;
+$("stopBtn").onclick = () => { stopAll(); $("status").textContent = "Parado."; };
+
+/** Tono base de una grabación: mediana de la autocorrelación por cuadros. */
+function medianF0(buffer) {
+  const data = buffer.getChannelData(0), sr = buffer.sampleRate, N = 2048, found = [];
+  for (let start = 0; start + N < data.length; start += N / 2) {
+    const f = detectF0(data.subarray(start, start + N), sr);
+    if (f) found.push(f);
+  }
+  if (found.length < 5) return 0;
+  found.sort((a, b) => a - b);
+  return found[Math.floor(found.length / 2)];
+}
+function detectF0(buf, rate) {
+  let energy = 0; for (const v of buf) energy += v * v;
+  if (Math.sqrt(energy / buf.length) < 0.015) return 0;
+  const minLag = Math.floor(rate / 400), maxLag = Math.floor(rate / 70);
+  let best = 0, bestLag = 0;
+  for (let lag = minLag; lag <= maxLag; lag++) {
+    let sum = 0;
+    for (let i = 0; i < buf.length - lag; i++) sum += buf[i] * buf[i + lag];
+    if (sum > best) { best = sum; bestLag = lag; }
+  }
+  return best / energy > 0.35 && bestLag ? rate / bestLag : 0;
+}
+
+// ---------------- presets y sliders ----------------
+const PRESETS = {
+  H1: { name: "Hombre 1", f0: 105, tilt: -4, form: -3 },
+  H2: { name: "Hombre 2", f0: 135, tilt: -2, form: -1.5 },
+  M1: { name: "Mujer 1", f0: 200, tilt: 2, form: 2 },
+  M2: { name: "Mujer 2", f0: 240, tilt: 4, form: 3.5 },
+};
+let currentPreset = null;
+function setPresetUI(p) {
+  currentPreset = p;
+  document.querySelectorAll("#presets [data-p]").forEach((b) => b.classList.toggle("on", b.dataset.p === p));
+  if (p === "robot") { engine = "robot"; renderEngines(); return; }
+  const pr = PRESETS[p];
+  const semis = Math.max(-12, Math.min(12, Math.round(2 * 12 * Math.log2(pr.f0 / base)) / 2));
+  $("semi").value = semis; $("tilt").value = pr.tilt; $("form").value = pr.form;
+  syncLabels();
+}
+function syncLabels() {
+  $("semiV").textContent = `${+$("semi").value > 0 ? "+" : ""}${$("semi").value} st`;
+  $("tiltV").textContent = `${+$("tilt").value > 0 ? "+" : ""}${$("tilt").value} dB`;
+  $("formV").textContent = `${+$("form").value > 0 ? "+" : ""}${$("form").value} st`;
+}
+$("presets").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-p]"); if (!b) return;
+  if (b.dataset.p !== "robot" && engine === "robot") { engine = "native"; renderEngines(); }
+  setPresetUI(b.dataset.p);
+  if (mode) restart(); else if (recorded) playRecorded(false);
+});
+for (const id of ["semi", "tilt", "form"]) $(id).addEventListener("change", () => { syncLabels(); restart(); });
+for (const id of ["semi", "tilt", "form"]) $(id).addEventListener("input", syncLabels);
+$("walkie").addEventListener("change", restart);
+syncLabels();
+
+// Para pruebas automáticas: reproducir un buffer cualquiera con el motor elegido.
+window.__voz = { ensureCtx, mount, get out() { return outGain; }, setEngine: (k) => { engine = k; renderEngines(); }, get ctx() { return ctx; }, results };
+</script>
+</body>
+</html>
