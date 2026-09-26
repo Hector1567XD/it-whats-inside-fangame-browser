@@ -4,24 +4,31 @@ import { Avatar } from "./Avatar";
 import { sfx } from "./sfx";
 import type { PlayerView, StateView } from "./net";
 
-type Banner = { kind: "DAY" | "NIGHT" | "GUESS" | "RESULTS"; title: string; sub: string; ms: number };
+type Banner = { kind: "QUESTION" | "THREAD" | "DAY" | "NIGHT" | "GUESS" | "RESULTS"; title: string; sub: string; ms: number };
 
 /** Letrero gigante animado cada vez que cambia la fase. */
 export function PhaseBanner({ s, bodyName }: { s: StateView; bodyName: string }) {
   const [b, setB] = useState<(Banner & { key: string }) | null>(null);
-  const key = `${s.phase}-${s.dayCount}-${s.round}`;
+  const key = `${s.phase}-${s.cycle}-${s.round}`;
   const first = useRef(true);
 
   useEffect(() => {
     const wasFirst = first.current;
     first.current = false;
     let banner: Banner | null = null;
-    if (s.phase === "DAY") {
-      banner = { kind: "DAY", title: `DÍA ${s.dayCount}`, sub: `Chat grupal · todos te ven como ${bodyName}`, ms: 2600 };
+    const cyc = s.settings.cycles > 1 ? ` ${s.cycle}` : "";
+    if (s.phase === "QUESTION") {
+      banner = { kind: "QUESTION", title: "LA PREGUNTA", sub: `Responde como ${bodyName}… o como tú 😏`, ms: 2600 };
+      sfx.guess();
+    } else if (s.phase === "THREAD") {
+      banner = { kind: "THREAD", title: "EL HILO", sub: "Comenta cada respuesta como si fuera X 🐦", ms: 2600 };
+      sfx.day();
+    } else if (s.phase === "DAY") {
+      banner = { kind: "DAY", title: `CHAT GLOBAL${cyc}`, sub: `Todos te ven como ${bodyName}`, ms: 2600 };
       sfx.day();
     } else if (s.phase === "NIGHT") {
       const n = s.chatLimit;
-      banner = { kind: "NIGHT", title: `NOCHE ${s.dayCount}`, sub: `Solo puedes INICIAR ${n} chat${n === 1 ? "" : "s"} privado${n === 1 ? "" : "s"} 🤫`, ms: 3400 };
+      banner = { kind: "NIGHT", title: `CHAT PRIVADO${cyc}`, sub: `Solo puedes INICIAR ${n} chat${n === 1 ? "" : "s"} privado${n === 1 ? "" : "s"} 🤫`, ms: 3400 };
       sfx.night();
     } else if (s.phase === "GUESS") {
       banner = { kind: "GUESS", title: "¿QUIÉN ES QUIÉN?", sub: "Adivina qué mente hay en cada cuerpo", ms: 2600 };
@@ -45,6 +52,8 @@ export function PhaseBanner({ s, bodyName }: { s: StateView; bodyName: string })
         {b.kind === "NIGHT" && <Stars n={40} />}
         {b.kind === "NIGHT" && <div className="moon">🌙</div>}
         {b.kind === "GUESS" && <div className="lens">🔍</div>}
+        {b.kind === "QUESTION" && <div className="lens">❓</div>}
+        {b.kind === "THREAD" && <><div className="sunrays" /><div className="lens">🐦</div></>}
         {b.kind === "RESULTS" && <div className="lens">🥁</div>}
       </div>
       <h1 className="banner-title">{b.title}</h1>
@@ -117,13 +126,21 @@ export function SwapScreen({ players, mind, body, timer }: { players: PlayerView
           </div>
         ))}
       </div>
-      {landed && body ? (
+      {landed && body && body.id === mind?.id ? (
+        <div className="swap-result">
+          <div className="swap-now">🟢 ¡La máquina te devolvió a tu cuerpo!</div>
+          <Avatar avatar={body.avatar} color={body.color} size={120} className="wobble" />
+          <div className="swap-body">Sigues siendo {body.name}</div>
+          <p className="swap-tip">Otros sí cambiaron (no sabes cuántos). Si logras que la mitad crea que cambiaste, ganas <b>+150 🎭 Despiste</b>.</p>
+          <p className="muted">Empieza en {timer}s…</p>
+        </div>
+      ) : landed && body ? (
         <div className="swap-result">
           <div className="swap-now">✅ Transferencia completa. Ahora estás en el cuerpo de</div>
           <Avatar avatar={body.avatar} color={body.color} size={120} className="wobble" />
           <div className="swap-body">{body.name}</div>
           <p className="swap-tip">Actúa como <b>{body.name}</b> durante toda la partida. ¡Que nadie sepa que eres tú! 🤐</p>
-          <p className="muted">El Día 1 empieza en {timer}s…</p>
+          <p className="muted">Empieza en {timer}s…</p>
         </div>
       ) : <p className="swap-now pulse">⚡ Iniciando la transferencia…</p>}
     </div>

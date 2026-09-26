@@ -9,11 +9,8 @@
   "dependencies": {
     "@dicebear/adventurer": "^9.4.2",
     "@dicebear/big-smile": "^9.4.2",
-    "@dicebear/bottts": "^9.4.2",
     "@dicebear/core": "^9.4.3",
     "@dicebear/croodles": "^9.4.2",
-    "@dicebear/fun-emoji": "^9.4.2",
-    "@dicebear/thumbs": "^9.4.2",
     "canvas-confetti": "^1.9.4",
     "colyseus.js": "^0.16.0",
     "react": "^19.0.0",

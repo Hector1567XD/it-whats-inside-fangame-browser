@@ -9,5 +9,3 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
-      - key: MIN_PLAYERS
-        value: "4"

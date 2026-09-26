@@ -1,16 +1,16 @@
 import { Room, Client, ServerError, type Deferred } from "@colyseus/core";
-import { GameState, Player, Settings } from "./GameState.js";
+import { GameState, Player, Post, Reply, type Mode, type Phase, type Settings } from "./GameState.js";
+import { QUESTIONS } from "./questions.js";
 
 const num = (v: string | undefined, d: number) => (v && !isNaN(+v) ? +v : d);
-const DAY_SECONDS = num(process.env.DAY_SECONDS, 120);
-const NIGHT_SECONDS = num(process.env.NIGHT_SECONDS, 90);
-const GUESS_SECONDS = num(process.env.GUESS_SECONDS, 90);
-const SWAP_SECONDS = num(process.env.SWAP_SECONDS, 10); // animación de cambio de cuerpos antes del Día 1
-const MIN_PLAYERS = num(process.env.MIN_PLAYERS, 4);
-const MAX_PLAYERS = 8;
+const SWAP_SECONDS = num(process.env.SWAP_SECONDS, 10); // animación de cambio de cuerpos al empezar
+const MIN_PLAYERS_ENV = process.env.MIN_PLAYERS ? num(process.env.MIN_PLAYERS, 5) : undefined; // override para pruebas
+const MIN_PLAYERS: Record<Mode, number> = { classic: 5, all: 4 };
+const MAX_PLAYERS = 12;
 const MAX_CHAT_LOG = 300;
+const MAX_REPLIES = 80;
 
-const AVATAR_STYLES = ["fun-emoji", "bottts", "thumbs", "big-smile", "adventurer", "croodles"];
+const AVATAR_STYLES = ["big-smile", "adventurer", "croodles"];
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const usedCodes = new Set<string>();
@@ -32,25 +32,48 @@ function shuffle<T>(a: T[]): T[] {
   return r;
 }
 
+const randInt = (lo: number, hi: number) => lo + Math.floor(Math.random() * (hi - lo + 1));
+
 const clamp = (v: unknown, min: number, max: number, d: number) => {
   const n = Math.round(Number(v));
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : d;
 };
 
 /** Chats que cada jugador puede iniciar por noche en modo automático. */
-export const autoChats = (players: number) => (players <= 5 ? 2 : players <= 7 ? 3 : 4);
+export const autoChats = (players: number) => Math.min(5, Math.max(2, Math.floor(players / 2)));
+
+/**
+ * Cuántos cambian de cuerpo. Clásico: entre 2 y N-2 al azar (siempre quedan al menos 2 en su cuerpo),
+ * nadie sabe cuántos. Todos cambian: todos.
+ */
+export function swapCount(mode: Mode, n: number) {
+  if (n < 2) return 0;
+  if (mode === "all") return n;
+  return randInt(2, Math.max(2, n - 2));
+}
 
 export type RoundResult = {
   mindId: string;
   bodyId: string;
-  correct: number; // cuántas mentes rivales adivinó
-  guessedBy: number; // cuántos rivales lo descubrieron
-  stealth: boolean; // bonus +150
+  swapped: boolean;
+  hits: number; // cuerpos cambiados que adivinó (+200 c/u)
+  sameHits: number; // acertó que alguien NO cambió (+50 c/u)
+  guessedBy: number; // rivales que adivinaron qué mente había en su cuerpo
+  fooled: number; // (si no cambió) rivales que creyeron que sí cambió
+  bonus: "stealth" | "decoy" | null; // +150
   points: number;
+};
+export type ResultsPayload = {
+  mode: Mode;
+  results: RoundResult[];
+  guesses: Record<string, Record<string, string>>; // mente -> { cuerpo: mente adivinada }
 };
 
 type ChatMsg = { fromBody: string; real: boolean; tag: string; text: string; ts: number };
 type DmLog = { a: string; b: string; fromBody: string; text: string; ts: number }; // a = mente que escribe, b = destino
+
+const PLAYING: Phase[] = ["SWAP", "QUESTION", "THREAD", "DAY", "NIGHT", "GUESS"];
+const SKIPPABLE: Phase[] = ["QUESTION", "THREAD", "DAY", "NIGHT", "GUESS"];
 
 export class GameRoom extends Room<GameState> {
   maxClients = MAX_PLAYERS * 2; // holgura para que alguien retome su lugar aunque la sala esté llena
@@ -69,13 +92,17 @@ export class GameRoom extends Room<GameState> {
   private initiated = new Map<string, number>(); // mindId -> chats que inició esta noche
   private dmLog: DmLog[] = [];
   private chatLog: ChatMsg[] = [];
+  private answers = new Map<string, string>(); // mindId -> respuesta a La Pregunta
+  private likedBy = new Map<string, Set<string>>(); // post/reply id -> mentes que dieron like
+  private usedQuestions = new Set<string>();
+  private seq = 0;
   private guesses = new Map<string, Record<string, string>>(); // mindId -> { bodyId: mindId }
-  private lastResults: RoundResult[] | null = null;
+  private lastResults: ResultsPayload | null = null;
 
-  onCreate() {
+  onCreate(opts: { mode?: string }) {
     this.roomId = newCode();
-    this.state.minPlayers = MIN_PLAYERS;
-    Object.assign(this.state.settings, { daySeconds: DAY_SECONDS, nightSeconds: NIGHT_SECONDS, guessSeconds: GUESS_SECONDS });
+    this.setMode(opts?.mode === "all" ? "all" : "classic");
+    this.state.maxPlayers = MAX_PLAYERS;
     this.clock.setInterval(() => this.tick(), 1000);
     this.syncMeta();
 
@@ -87,11 +114,45 @@ export class GameRoom extends Room<GameState> {
       if (!t || !["LOBBY", "DAY", "RESULTS"].includes(ph)) return;
       const real = ph !== "DAY"; // fuera del día se habla con la identidad real
       const fromBody = real ? this.pid(client) : this.bodyOf.get(this.pid(client)) ?? this.pid(client);
-      const tag = ph === "DAY" ? `☀️ Día ${this.state.dayCount}` : ph === "RESULTS" ? "🏆 Resultados" : "🛋️ Sala de espera";
+      const tag = ph === "DAY"
+        ? `☀️ Chat global${this.state.settings.cycles > 1 ? ` · ciclo ${this.state.cycle}` : ""}`
+        : ph === "RESULTS" ? "🏆 Resultados" : "🛋️ Sala de espera";
       const msg: ChatMsg = { fromBody, real, tag, text: t, ts: Date.now() };
       this.chatLog.push(msg);
       if (this.chatLog.length > MAX_CHAT_LOG) this.chatLog.shift();
       this.broadcast("chat", msg);
+    });
+
+    this.onMessage("answer", (client, { text }: { text: string }) => {
+      const t = clean(text).slice(0, 200);
+      if (!t || this.state.phase !== "QUESTION") return;
+      const me = this.pid(client);
+      this.answers.set(me, t);
+      const p = this.state.players.get(me);
+      if (p) p.submitted = true;
+      if (this.allConnectedSubmitted()) this.advance();
+    });
+
+    this.onMessage("reply", (client, { text }: { text: string }) => {
+      const t = clean(text).slice(0, 200);
+      const post = this.state.posts[this.state.thread];
+      if (!t || this.state.phase !== "THREAD" || !post || post.replies.length >= MAX_REPLIES) return;
+      const r = new Reply();
+      r.id = `r${++this.seq}`;
+      r.body = this.bodyOf.get(this.pid(client)) ?? this.pid(client);
+      r.text = t;
+      post.replies.push(r);
+    });
+
+    this.onMessage("like", (client, { id }: { id: string }) => {
+      if (!["THREAD", "DAY"].includes(this.state.phase) || typeof id !== "string") return;
+      const target = this.findLikeable(id);
+      if (!target) return;
+      let set = this.likedBy.get(id);
+      if (!set) this.likedBy.set(id, (set = new Set()));
+      const me = this.pid(client);
+      set.has(me) ? set.delete(me) : set.add(me);
+      target.likes = set.size;
     });
 
     this.onMessage("dm", (client, { toBody, text }: { toBody: string; text: string }) => {
@@ -118,21 +179,25 @@ export class GameRoom extends Room<GameState> {
       this.clientOf(target)?.send("dm", { fromBody: myBody, text: t, ts, withBody: myBody });
     });
 
-    this.onMessage("settings", (client, patch: Partial<Record<keyof Settings, number>>) => {
+    this.onMessage("settings", (client, patch: Partial<Record<keyof Settings, number | string>>) => {
       if (!this.isHost(client) || this.state.phase !== "LOBBY" || !patch || typeof patch !== "object") return;
       const s = this.state.settings;
-      if ("days" in patch) s.days = clamp(patch.days, 1, 6, s.days);
-      if ("nights" in patch) s.nights = clamp(patch.nights, 0, 6, s.nights);
-      s.nights = Math.min(s.nights, s.days);
-      if ("daySeconds" in patch) s.daySeconds = clamp(patch.daySeconds, 20, 600, s.daySeconds);
-      if ("nightSeconds" in patch) s.nightSeconds = clamp(patch.nightSeconds, 20, 600, s.nightSeconds);
+      if (patch.mode === "classic" || patch.mode === "all") this.setMode(patch.mode);
+      if ("cycles" in patch) s.cycles = clamp(patch.cycles, 1, 5, s.cycles);
+      // 0 apaga la fase (menos la adivinanza)
+      if ("questionSeconds" in patch) s.questionSeconds = clamp(patch.questionSeconds, 0, 180, s.questionSeconds);
+      if ("threadSeconds" in patch) s.threadSeconds = clamp(patch.threadSeconds, 0, 120, s.threadSeconds);
+      if ("daySeconds" in patch) s.daySeconds = clamp(patch.daySeconds, 0, 600, s.daySeconds);
+      if ("nightSeconds" in patch) s.nightSeconds = clamp(patch.nightSeconds, 0, 600, s.nightSeconds);
       if ("guessSeconds" in patch) s.guessSeconds = clamp(patch.guessSeconds, 20, 300, s.guessSeconds);
       if ("chatsPerNight" in patch) s.chatsPerNight = clamp(patch.chatsPerNight, 0, 7, s.chatsPerNight);
     });
 
     this.onMessage("start", (client) => {
       if (!this.isHost(client) || this.state.phase !== "LOBBY") return;
-      if (this.state.players.size < MIN_PLAYERS) return this.err(client, `Se necesitan al menos ${MIN_PLAYERS} jugadores.`);
+      if (this.state.players.size < this.state.minPlayers) {
+        return this.err(client, `Se necesitan al menos ${this.state.minPlayers} jugadores para este modo.`);
+      }
       this.startRound();
     });
 
@@ -145,7 +210,7 @@ export class GameRoom extends Room<GameState> {
 
     // Votación de todos para saltar la fase (toggle).
     this.onMessage("voteSkip", (client) => {
-      if (!["DAY", "NIGHT", "GUESS"].includes(this.state.phase)) return;
+      if (!SKIPPABLE.includes(this.state.phase)) return;
       const p = this.state.players.get(this.pid(client));
       if (!p) return;
       p.skipVote = !p.skipVote;
@@ -157,7 +222,7 @@ export class GameRoom extends Room<GameState> {
       this.guesses.set(this.pid(client), typeof guesses === "object" && guesses ? guesses : {});
       const p = this.state.players.get(this.pid(client));
       if (p) p.submitted = true;
-      this.checkGuessesDone();
+      if (this.allConnectedSubmitted()) this.advance();
     });
 
     this.onMessage("next", (client) => {
@@ -262,12 +327,19 @@ export class GameRoom extends Room<GameState> {
 
   // ---------------- ciclo de juego ----------------
 
+  private setMode(mode: Mode) {
+    this.state.settings.mode = mode;
+    this.state.minPlayers = MIN_PLAYERS_ENV ?? MIN_PLAYERS[mode];
+  }
+
   private startRound() {
     this.state.round++;
-    this.state.dayCount = 0;
+    this.state.cycle = 0;
     this.guesses.clear();
     this.chatLog = [];
     this.lastResults = null;
+    this.state.posts.clear();
+    this.state.question = "";
     for (const p of this.state.players.values()) p.submitted = false;
     this.assignBodies();
     this.setPhase("SWAP", SWAP_SECONDS);
@@ -275,7 +347,7 @@ export class GameRoom extends Room<GameState> {
   }
 
   private isPlaying() {
-    return ["SWAP", "DAY", "NIGHT", "GUESS"].includes(this.state.phase);
+    return PLAYING.includes(this.state.phase);
   }
 
   private tick() {
@@ -284,34 +356,103 @@ export class GameRoom extends Room<GameState> {
     if (this.state.timer <= 0) this.advance();
   }
 
+  /** Fases de un ciclo según la config (tiempo 0 = fase apagada). */
+  private cyclePhases(): Phase[] {
+    const s = this.state.settings;
+    const list: Phase[] = [];
+    if (s.questionSeconds > 0) {
+      list.push("QUESTION");
+      if (s.threadSeconds > 0) list.push("THREAD");
+    }
+    if (s.daySeconds > 0) list.push("DAY");
+    if (s.nightSeconds > 0) list.push("NIGHT");
+    return list;
+  }
+
   /**
-   * Secuencia: SWAP → Día 1 → (Noche 1) → Día 2 → ... → Día N → (Noche N) → GUESS → RESULTS.
-   * Hay noche después de cada día mientras dayCount <= settings.nights.
+   * SWAP → [La Pregunta → El Hilo (un post a la vez) → Chat global → Chat privado] × ciclos → GUESS → RESULTS.
    */
   private advance() {
-    const { days, nights, daySeconds, nightSeconds, guessSeconds } = this.state.settings;
-    const nextDayOrGuess = () => {
-      if (this.state.dayCount < days) {
-        this.state.dayCount++;
-        this.setPhase("DAY", daySeconds);
-      } else this.setPhase("GUESS", guessSeconds);
-    };
-    switch (this.state.phase) {
-      case "SWAP":
-        nextDayOrGuess();
-        break;
-      case "DAY":
-        if (this.state.dayCount <= nights) this.startNight(nightSeconds);
-        else nextDayOrGuess();
-        break;
-      case "NIGHT":
-        nextDayOrGuess();
-        break;
-      case "GUESS":
-        this.computeResults();
-        this.setPhase("RESULTS", 0);
-        break;
+    const ph = this.state.phase;
+    if (ph === "THREAD" && this.state.thread < this.state.posts.length - 1) {
+      this.state.thread++;
+      this.setPhase("THREAD", this.state.settings.threadSeconds);
+      return;
     }
+    if (ph === "GUESS") {
+      this.computeResults();
+      this.setPhase("RESULTS", 0);
+      return;
+    }
+    if (!this.isPlaying()) return;
+    const list = this.cyclePhases();
+    if (ph === "SWAP") {
+      this.state.cycle = 1;
+      return this.goTo(list, 0);
+    }
+    this.goTo(list, list.indexOf(ph) + 1);
+  }
+
+  private goTo(list: Phase[], i: number): void {
+    if (i >= list.length) {
+      if (list.length > 0 && this.state.cycle < this.state.settings.cycles) {
+        this.state.cycle++;
+        i = 0;
+      } else return this.enterGuess();
+    }
+    const s = this.state.settings;
+    switch (list[i]) {
+      case "QUESTION": {
+        this.answers.clear();
+        this.likedBy.clear();
+        this.state.posts.clear();
+        this.state.question = this.pickQuestion();
+        for (const p of this.state.players.values()) p.submitted = false;
+        return this.setPhase("QUESTION", s.questionSeconds);
+      }
+      case "THREAD": {
+        const answered = shuffle([...this.answers.entries()]);
+        if (answered.length === 0) return this.goTo(list, i + 1); // nadie respondió: no hay hilo
+        for (const [mind, text] of answered) {
+          const post = new Post();
+          post.id = `p${++this.seq}`;
+          post.body = this.bodyOf.get(mind) ?? mind;
+          post.text = text;
+          this.state.posts.push(post);
+        }
+        this.state.thread = 0;
+        return this.setPhase("THREAD", s.threadSeconds);
+      }
+      case "DAY":
+        return this.setPhase("DAY", s.daySeconds);
+      case "NIGHT":
+        return this.startNight(s.nightSeconds);
+    }
+  }
+
+  private enterGuess() {
+    for (const p of this.state.players.values()) p.submitted = false;
+    this.setPhase("GUESS", this.state.settings.guessSeconds);
+  }
+
+  private pickQuestion() {
+    let pool = QUESTIONS.filter((q) => !this.usedQuestions.has(q));
+    if (pool.length === 0) {
+      this.usedQuestions.clear();
+      pool = QUESTIONS;
+    }
+    const q = pool[Math.floor(Math.random() * pool.length)];
+    this.usedQuestions.add(q);
+    return q;
+  }
+
+  private findLikeable(id: string): Post | Reply | undefined {
+    for (const p of this.state.posts) {
+      if (p.id === id) return p;
+      const r = p.replies.find((x) => x.id === id);
+      if (r) return r;
+    }
+    return undefined;
   }
 
   private startNight(seconds: number) {
@@ -323,7 +464,7 @@ export class GameRoom extends Room<GameState> {
     this.setPhase("NIGHT", seconds);
   }
 
-  private setPhase(phase: GameState["phase"], seconds: number) {
+  private setPhase(phase: Phase, seconds: number) {
     const changed = this.state.phase !== phase;
     this.state.phase = phase;
     this.state.timer = seconds;
@@ -332,7 +473,7 @@ export class GameRoom extends Room<GameState> {
   }
 
   private checkSkipVotes() {
-    if (!["DAY", "NIGHT", "GUESS"].includes(this.state.phase)) return;
+    if (!SKIPPABLE.includes(this.state.phase)) return;
     const connected = [...this.state.players.values()].filter((p) => p.connected);
     const votes = connected.filter((p) => p.skipVote).length;
     if (votes > 0 && votes >= skipNeeded(connected.length)) {
@@ -341,51 +482,78 @@ export class GameRoom extends Room<GameState> {
     }
   }
 
+  private allConnectedSubmitted() {
+    return ![...this.state.players.values()].some((p) => p.connected && !p.submitted);
+  }
+
   private checkGuessesDone() {
-    if (this.state.phase !== "GUESS") return;
-    const pending = [...this.state.players.values()].some((p) => p.connected && !p.submitted);
-    if (!pending) this.advance();
+    if (["QUESTION", "GUESS"].includes(this.state.phase) && this.allConnectedSubmitted()) this.advance();
   }
 
   /**
-   * Un único cambio por ronda, antes del Día 1. Derangement: nadie queda en su propio cuerpo
-   * y, si se puede, nadie repite el cuerpo que tuvo la ronda anterior.
+   * Un único cambio por ronda, al empezar. Los que cambian forman un derangement entre ellos
+   * (ninguno queda en su cuerpo) y, si se puede, nadie repite el cuerpo de la ronda anterior.
    */
   private assignBodies() {
-    const minds = shuffle([...this.state.players.keys()]);
+    const all = shuffle([...this.state.players.keys()]);
     this.bodyOf.clear();
-    if (minds.length < 2) {
-      minds.forEach((m) => this.bodyOf.set(m, m));
-      return;
+    all.forEach((m) => this.bodyOf.set(m, m));
+    const k = swapCount(this.state.settings.mode, all.length);
+    const minds = all.slice(0, k);
+    if (minds.length >= 2) {
+      const bad = (next: string[], strict: boolean) =>
+        next.some((b, i) => b === minds[i] || (strict && b === this.lastBodyOf.get(minds[i])));
+      let next = shuffle(minds);
+      for (let tries = 0; tries < 5000 && bad(next, tries < 2000); tries++) next = shuffle(minds);
+      minds.forEach((m, i) => this.bodyOf.set(m, next[i]));
     }
-    const bad = (next: string[], strict: boolean) =>
-      next.some((b, i) => b === minds[i] || (strict && b === this.lastBodyOf.get(minds[i])));
-    let next = shuffle(minds);
-    for (let tries = 0; tries < 5000 && bad(next, tries < 2000); tries++) next = shuffle(minds);
-    minds.forEach((m, i) => this.bodyOf.set(m, next[i]));
     this.lastBodyOf = new Map(this.bodyOf);
   }
 
   private computeResults() {
     const minds = [...this.bodyOf.keys()];
     const rivals = minds.length - 1;
-    const results: RoundResult[] = minds.map((m) => {
-      const myGuess = this.guesses.get(m) ?? {};
-      const myBody = this.bodyOf.get(m)!;
-      let correct = 0;
-      for (const other of minds) {
-        if (other === m) continue;
-        if (myGuess[this.bodyOf.get(other)!] === other) correct++;
+    const classic = this.state.settings.mode === "classic";
+
+    // Normalizamos: en clásico, un cuerpo sin marcar = "no cambió" (su dueño).
+    const norm: Record<string, Record<string, string>> = {};
+    for (const m of minds) {
+      const raw = this.guesses.get(m) ?? {};
+      const g: Record<string, string> = {};
+      for (const b of minds) {
+        if (b === this.bodyOf.get(m)) continue;
+        const v = typeof raw[b] === "string" && this.bodyOf.has(raw[b]) ? raw[b] : "";
+        g[b] = v || (classic ? b : "");
       }
-      const guessedBy = minds.filter((o) => o !== m && this.guesses.get(o)?.[myBody] === m).length;
-      const stealth = guessedBy < rivals * 0.5;
-      const points = correct * 200 + (stealth ? 150 : 0);
+      norm[m] = g;
+    }
+
+    const results: RoundResult[] = minds.map((m) => {
+      const myBody = this.bodyOf.get(m)!;
+      const swapped = myBody !== m;
+      let hits = 0;
+      let sameHits = 0;
+      for (const o of minds) {
+        if (o === m) continue;
+        const b = this.bodyOf.get(o)!;
+        if (norm[m][b] === o) b === o ? sameHits++ : hits++;
+      }
+      const others = minds.filter((o) => o !== m);
+      const guessedBy = others.filter((o) => norm[o][myBody] === m).length;
+      const fooled = swapped ? 0 : others.filter((o) => norm[o][myBody] && norm[o][myBody] !== m).length;
+      const bonus = swapped
+        ? (guessedBy < rivals * 0.5 ? "stealth" : null)
+        : (rivals > 0 && fooled >= rivals * 0.5 ? "decoy" : null);
+      const points = hits * 200 + sameHits * 50 + (bonus ? 150 : 0);
       const p = this.state.players.get(m);
-      if (p) p.score += points;
-      return { mindId: m, bodyId: myBody, correct, guessedBy, stealth, points };
+      if (p) {
+        p.score += points;
+        p.lastPoints = points;
+      }
+      return { mindId: m, bodyId: myBody, swapped, hits, sameHits, guessedBy, fooled, bonus, points };
     });
-    this.lastResults = results;
-    this.broadcast("results", results);
+    this.lastResults = { mode: this.state.settings.mode, results, guesses: norm };
+    this.broadcast("results", this.lastResults);
   }
 
   private backToLobby() {
@@ -401,7 +569,9 @@ export class GameRoom extends Room<GameState> {
     this.guesses.clear();
     this.dmLog = [];
     this.lastResults = null;
-    this.state.dayCount = 0;
+    this.state.cycle = 0;
+    this.state.posts.clear();
+    this.state.question = "";
     this.setPhase("LOBBY", 0);
     this.reassignHost();
     this.clients.forEach((c) => this.sendIdentity(c));

@@ -19,7 +19,7 @@ Abre http://localhost:5173 en varias pestañas (o ventanas de incógnito) para p
 Para probar rápido con tiempos cortos y menos gente:
 
 ```bash
-MIN_PLAYERS=2 SWAP_SECONDS=5 npm run dev -w server
+MIN_PLAYERS=2 SWAP_SECONDS=5 npm run dev -w server   # en otra terminal: npm run dev -w web
 ```
 
 ## Producción (un solo servicio)
@@ -28,23 +28,25 @@ MIN_PLAYERS=2 SWAP_SECONDS=5 npm run dev -w server
 npm run build && npm start   # sirve API + WS + front en $PORT (default 2567)
 ```
 
-Variables: `PORT`, `MIN_PLAYERS` (4), `SWAP_SECONDS` (10), y los valores por defecto de tiempos `DAY_SECONDS` (120), `NIGHT_SECONDS` (90), `GUESS_SECONDS` (90) — el host los puede cambiar en el lobby.
+Variables: `PORT`, `SWAP_SECONDS` (10), `MIN_PLAYERS` (solo para pruebas: pisa el mínimo de cada modo). Los tiempos de las fases se configuran en el lobby.
 
 Deploy en Render: `render.yaml` en la raíz (blueprint, sin `rootDir`).
 En el front, `VITE_SERVER_URL` si el server vive en otro dominio.
 
 ## Cómo funciona
 
-1. Eliges username, avatar (6 estilos de DiceBear + 🎲) y color → **Crear sala** (código de 4 letras). Compartes el link `?room=CODE`.
-2. En el lobby el host configura **días, noches, duración de cada fase y chats por noche**.
-3. Host inicia (4–8 jugadores). **Cambio de cuerpos** (ruleta animada, una sola vez: nadie queda en su propio cuerpo y, si se puede, nadie repite el cuerpo de la ronda anterior) → Día 1 → Noche 1 → Día 2 → … → Adivinanza → Resultados. Hay noche después de los primeros *N* días (N = noches configuradas).
-4. **Día:** chat grupal; cada mensaje sale con el nombre y avatar del *cuerpo*, nunca de la mente.
-5. **Noche:** DMs 1 a 1. Cada quien puede **iniciar** un número limitado de chats (auto: 2 con ≤5 jugadores, 3 con 6–7, 4 con 8; o fijo 1–7). Responder a quien te escribe es gratis. El letrero de la noche y el contador `1/2 disponibles` lo avisan.
-6. **Adivinanza:** para cada cuerpo eliges qué mente está dentro. +200 por acierto, +150 si menos del 50% de los rivales te descubrió.
-7. **Saltar:** cualquiera puede votar ⏭ (se salta con mayoría de los conectados). El host además tiene **⏩ Forzar**.
-8. Resultados con revelación una por una; el host lanza **Siguiente ronda** (el marcador se acumula).
+1. Eliges username, avatar (Sonrisa / Aventura / Garabato; 🎲 cambia avatar y color) y el **modo** → **Crear sala**. Compartes el link `?room=CODE`. Hasta 12 jugadores.
+2. **Modos:**
+   - 🎲 **Clásico** (mín. 5): cambian entre 2 y N−2 jugadores al azar; siempre quedan al menos 2 en su propio cuerpo y nadie sabe cuántos cambiaron.
+   - 🔀 **Todos cambian** (mín. 4): todas las mentes cambian.
+3. 🧳 **La máquina** hace el cambio UNA vez al empezar (nadie repite el cuerpo de la ronda anterior si se puede).
+4. Ciclo (por defecto ×1): ❓ **La Pregunta** (todos responden la misma pregunta desde su cuerpo) → 🐦 **El Hilo** (cada respuesta sale como post de X y todos la comentan, 30 s por respuesta, con ❤️) → ☀️ **Chat global** (con las respuestas al lado) → 🌙 **Chat privado** (cada quien puede INICIAR pocos chats; auto: ⌊N/2⌋ entre 2 y 5).
+5. 🔍 **Adivinanza:** para cada cuerpo, qué mente hay adentro (o "🙋 No cambió" en Clásico).
+6. **Puntos:** +200 por descubrir un cambio, +50 por acertar que alguien no cambió, +150 🥷 *Sigilo* (cambiaste y menos de la mitad te descubrió) o +150 🎭 *Despiste* (NO cambiaste y la mitad o más creyó que sí).
+7. **Resultados:** revelación cuerpo por cuerpo → "Tu ronda" (tus adivinanzas y de dónde salió cada punto) → puntos de esa ronda. El acumulado se ve en la sala de espera.
+8. El host configura modo, ciclos y el tiempo de cada fase (0 = **Off**, esa fase se salta). Cualquiera vota ⏭ saltar (mayoría); el host tiene ⏩ Forzar.
 
-Letreros animados por fase, sonidos sintetizados con WebAudio (botón 🔊/🔇) y confeti.
+Preguntas en `apps/server/src/questions.ts`.
 
 Seguridad del secreto: el mapeo mente→cuerpo vive **solo en memoria privada del room** (no en el schema). Cada cliente recibe únicamente su propia identidad vía `identity`.
 
@@ -54,7 +56,7 @@ Seguridad del secreto: el mapeo mente→cuerpo vive **solo en memoria privada de
 
 ## Créditos de avatares
 
-[DiceBear](https://www.dicebear.com) (MIT). Estilos: Fun Emoji (Davis Uche), Big Smile (Ashley Seo), Adventurer (Lisa Wischofsky), Croodles (vijay verma) — CC BY 4.0; Bottts (Pablo Stanley) — libre uso; Thumbs (DiceBear) — CC0.
+[DiceBear](https://www.dicebear.com) (MIT). Estilos: Big Smile (Ashley Seo), Adventurer (Lisa Wischofsky), Croodles (vijay verma) — CC BY 4.0.
 
 ## Pendiente
 
