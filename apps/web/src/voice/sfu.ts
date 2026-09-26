@@ -194,6 +194,7 @@ export class VoiceSfu implements VoiceTransport {
         this.retry.delete(t.pid);
       }
     }
+    console.debug(`[voz] DEBUGPULL epoch=${this.epoch} pedidos=${pull.join(",")} → ${JSON.stringify(r.tracks)} sdpType=${r.sdp?.type}`);
     if (r.sdp) {
       await this.sub.setRemoteDescription(r.sdp);
       await this.sub.setLocalDescription();
@@ -205,7 +206,7 @@ export class VoiceSfu implements VoiceTransport {
 
   private onTrack(e: RTCTrackEvent) {
     const pid = this.pidOfMid.get(e.transceiver.mid ?? "");
-    if (!pid) return console.warn("[voz] llegó una pista sin dueño conocido", e.transceiver.mid);
+    if (!pid) return console.warn("[voz] llegó una pista sin dueño conocido", e.transceiver.mid, "DEBUGMAP", JSON.stringify([...this.pidOfMid]));
     this.dropRemote(pid);
     const stream = new MediaStream([e.track]);
     const audio = document.createElement("audio");

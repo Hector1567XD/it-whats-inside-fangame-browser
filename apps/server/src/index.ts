@@ -36,7 +36,9 @@ if (fs.existsSync(webDist)) {
 }
 
 const server = http.createServer(app);
-const gameServer = new Server({ transport: new WebSocketTransport({ server }) });
+// maxPayload: el default de Colyseus es 4 KB y una oferta/respuesta SDP de voz pesa 3–10 KB (más con varias
+// pistas). Pasarse cierra la conexión del jugador.
+const gameServer = new Server({ transport: new WebSocketTransport({ server, maxPayload: 64 * 1024 }) });
 gameServer.define("game", GameRoom);
 
 gameServer.listen(PORT).then(() => {
