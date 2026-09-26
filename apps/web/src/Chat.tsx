@@ -65,6 +65,12 @@ export function Night({ room, s, players, me, dms, used, P }: {
   const others = players.filter((p) => p.id !== me.bodyId);
   const [sel, setSel] = useState<string>("");
   const active = sel || Object.keys(dms)[0] || "";
+  // Mensajes leídos por conversación: el chat abierto se marca como leído al instante.
+  const [seen, setSeen] = useState<Record<string, number>>({});
+  const activeLen = dms[active]?.length ?? 0;
+  useEffect(() => { if (active) setSeen((v) => ({ ...v, [active]: activeLen })); }, [active, activeLen]);
+  const unread = (id: string) =>
+    id === active ? 0 : (dms[id] ?? []).slice(seen[id] ?? 0).filter((m) => m.fromBody !== me.bodyId).length;
   const left = Math.max(0, s.chatLimit - used);
   const hasConvo = (id: string) => (dms[id]?.length ?? 0) > 0;
   const iStarted = (id: string) => dms[id]?.[0]?.fromBody === me.bodyId;
@@ -89,7 +95,7 @@ export function Night({ room, s, players, me, dms, used, P }: {
             <span className="tab-state">
               {hasConvo(p.id) ? (iStarted(p.id) ? "abierto" : "📩 te escribió") : locked(p.id) ? "🔒" : "nuevo"}
             </span>
-            {hasConvo(p.id) && <span className="dot">{dms[p.id].length}</span>}
+            {unread(p.id) > 0 && <span className="dot">{unread(p.id)}</span>}
           </button>
         ))}
       </div>

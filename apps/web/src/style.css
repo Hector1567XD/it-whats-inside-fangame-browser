@@ -187,7 +187,7 @@ main > .card { flex: 1; }
 .tab.on { border-color: var(--yellow); background: rgba(255, 210, 61, 0.15); }
 .tab.locked { opacity: 0.5; }
 .tab-state { margin-left: auto; font-size: 11px; color: var(--muted); }
-.dot { background: var(--red); border-radius: 999px; padding: 0 8px; font-size: 12px; }
+.dot { background: var(--red); border-radius: 999px; padding: 0 8px; font-size: 12px; animation: pop 0.3s both; }
 .quota { text-align: center; background: linear-gradient(135deg, #6c7bff, #b36bff); border: 3px solid #fff; border-radius: 16px; padding: 10px; box-shadow: 0 5px 0 rgba(0, 0, 0, 0.3); }
 .quota.empty { background: linear-gradient(135deg, #555, #333); }
 .quota-title { font-family: "Lilita One", sans-serif; font-size: 18px; }
