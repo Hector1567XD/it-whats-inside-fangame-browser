@@ -579,6 +579,12 @@ button.kact { cursor: pointer; }
 .react-bar button:hover:not(:disabled) { transform: scale(1.35); background: rgba(255, 255, 255, 0.12); }
 .react-bar button:active { transform: scale(0.9); }
 .floaters { position: absolute; inset: 0; pointer-events: none; overflow: visible; z-index: 3; }
+.react-label { width: 100%; text-align: center; font-size: 12px; font-weight: 800; color: var(--muted); }
+.react-self { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 6px 0 10px; flex-wrap: wrap; }
+.react-self .react-bar { max-width: 520px; }
+.react-me, .verdict-target { position: relative; display: inline-flex; }
+.react-me .floaters span { bottom: 60%; font-size: 26px; }
+.verdict .verdict-target .floaters span { bottom: 60%; font-size: 40px; }
 .floaters span { position: absolute; bottom: 30%; font-size: 30px; animation: floatReact 1.8s ease-out forwards; }
 @keyframes floatReact {
   0% { transform: translateY(0) scale(0.4); opacity: 0; }

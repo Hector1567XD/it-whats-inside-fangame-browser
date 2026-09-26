@@ -78,7 +78,11 @@ Hasta 12 jugadores en todos los modos.
 
 - **Anuncio (`VERDICT`, 8 s):** "¡El cuerpo de Marcos fue desenmascarado! Adentro estaba Ana", "👻 El cuerpo de Dani ahora es un fantasma", "¡Sacaste al Inmutable!" o "No se sacó a nadie".
 - **Fantasma (Inmutables, votación entre ciclos) ✅:** si sale un **cambiante**, **no se revela qué alma tenía**. Revelarla descartaría otra mente que seguro no está en su cuerpo. El cuerpo queda como fantasma y la partida sigue. Se revela cuando sale el Inmutable, en el Juicio Final y en los resultados. En Clásico y Todos, el Desenmascare sí revela la mente, porque ese es el castigo.
-- **Reacciones en vivo** en las votaciones y el anuncio: 😂 😭 😊 ❤️ 😡 👏 🤔 👀 🤡. Son solo ambiente, no cuentan como voto, y tienen anti-spam de 150 ms.
+- **Reacciones en vivo** 😂 😭 😊 ❤️ 😡 👏 🤔 👀 🤡: son solo ambiente, no cuentan como voto, y tienen anti-spam de 150 ms. Hay una sola barra por pantalla (`react { emoji }`) y **el server decide dónde flota** cada emoji:
+  - Votando, sobre el cuerpo de quien reacciona.
+  - En el anuncio, sobre el cuerpo expulsado. Si no salió nadie, flotan sobre todo el anuncio.
+  - Nunca se usa la mente (`verdict.mindId`).
+  - Los espectadores y los fantasmas no reaccionan.
 - **Expulsión:** sale **el cuerpo** (`bodyOut`, público) **y la mente que tenía adentro**, que pasa a espectador. El dueño original de ese cuerpo sigue jugando desde el cuerpo en el que esté.
   - Desenmascare (y fin de partida): la mente se marca `out` en público.
   - Fantasma: la mente queda en `hiddenOut`, privado del room. En público **nadie** aparece como `out` hasta el final. El cliente sabe que es espectador por `identity.spectator`. Los conteos de activos se calculan por cuerpos (`activeCount`), así cuadran sin delatar a nadie.

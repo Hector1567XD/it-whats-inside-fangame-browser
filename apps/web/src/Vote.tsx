@@ -10,19 +10,21 @@ export type Floater = { id: number; target: string; emoji: string; x: number };
 
 // ======================= REACCIONES =======================
 
-export function Floaters({ items, target }: { items: Floater[]; target: string }) {
+/** Emojis flotando sobre `target` (o todos, con `target` vacío). */
+export function Floaters({ items, target }: { items: Floater[]; target?: string }) {
   return (
     <div className="floaters" aria-hidden>
-      {items.filter((f) => f.target === target).map((f) => (
+      {items.filter((f) => !target || f.target === target).map((f) => (
         <span key={f.id} style={{ left: `${f.x}%` }}>{f.emoji}</span>
       ))}
     </div>
   );
 }
 
-export function ReactBar({ onReact, disabled }: { onReact: (emoji: string) => void; disabled?: boolean }) {
+export function ReactBar({ onReact, disabled, label }: { onReact: (emoji: string) => void; disabled?: boolean; label?: string }) {
   return (
     <div className="react-bar">
+      {label && <span className="react-label">{label}</span>}
       {REACTIONS.map((e) => (
         <button key={e} type="button" disabled={disabled} onClick={(ev) => { ev.stopPropagation(); onReact(e); }}>{e}</button>
       ))}
@@ -38,7 +40,7 @@ export function SpectatorNote() {
 
 export function VotePhase({ room, s, me, role, P, players, floats, react }: {
   room: Room; s: StateView; me: Me; role: Role; P: Lookup; players: PlayerView[];
-  floats: Floater[]; react: (target: string, emoji: string) => void;
+  floats: Floater[]; react: (emoji: string) => void;
 }) {
   const unmask = s.phase === "UNMASK";
   const final = s.phase === "FINAL_VOTE";
@@ -107,11 +109,19 @@ export function VotePhase({ room, s, me, role, P, players, floats, react }: {
                   ))}
                 </div>
               )}
-              {!iAmOut && <ReactBar onReact={(e) => react(b.id, e)} />}
             </div>
           );
         })}
       </div>
+      {!iAmOut && (
+        <div className="react-self">
+          <span className="react-me">
+            <Floaters items={floats} target={me.bodyId} />
+            <Avatar avatar={P(me.bodyId)?.avatar} color={P(me.bodyId)?.color ?? "#999"} size={40} />
+          </span>
+          <ReactBar label="Tus reacciones salen sobre tu cuerpo:" onReact={react} />
+        </div>
+      )}
       {iAmOut ? null : submitted ? (
         <p className="muted center-text">✅ Listo. Esperando al resto ({done}/{total})…</p>
       ) : (
@@ -131,7 +141,7 @@ export function VotePhase({ room, s, me, role, P, players, floats, react }: {
 // ======================= ANUNCIO DEL RESULTADO =======================
 
 export function VerdictScreen({ v, P, me, floats, react }: {
-  v: Verdict | null; P: Lookup; me: Me; floats: Floater[]; react: (target: string, emoji: string) => void;
+  v: Verdict | null; P: Lookup; me: Me; floats: Floater[]; react: (emoji: string) => void;
 }) {
   const [shown, setShown] = useState(false);
   useEffect(() => {
@@ -178,19 +188,24 @@ export function VerdictScreen({ v, P, me, floats, react }: {
     sub = v.reason === "tie" ? "Hubo empate." : v.reason === "skip" ? "Ganó ⏭ Omitir." : "Nadie votó.";
   }
 
+  const ejected = v.outcome === "ejected" && !!body;
   const tally = Object.entries(v.tally ?? {}).sort((a, b) => b[1] - a[1]);
   const max = Math.max(1, ...tally.map(([, n]) => n));
 
   return (
     <div className={"verdict" + (shown ? " shown" : "")}>
-      <Floaters items={floats} target="verdict" />
+      {/* En el suspenso flota todo junto (sin revelar a quién); después, al expulsado o al aire si no salió nadie. */}
+      {!shown ? <Floaters items={floats} /> : !ejected && <Floaters items={floats} target="verdict" />}
       {!shown ? (
         <h1 className="verdict-suspense pulse">{v.kind === "UNMASK" ? "🎭" : "⚖️"} El resultado…</h1>
       ) : (
         <div className="verdict-card">
           {body && v.outcome === "ejected" && (
             <div className="verdict-faces">
-              <Avatar avatar={body.avatar} color={body.color} size={96} className="wobble" />
+              <span className="verdict-target">
+                <Floaters items={floats} target={body.id} />
+                <Avatar avatar={body.avatar} color={body.color} size={96} className="wobble" />
+              </span>
               {mind && mind.id !== body.id && <><span className="verdict-arrow">➜</span><Avatar avatar={mind.avatar} color={mind.color} size={72} /></>}
             </div>
           )}
@@ -213,7 +228,7 @@ export function VerdictScreen({ v, P, me, floats, react }: {
           )}
         </div>
       )}
-      {!iAmOut && <ReactBar onReact={(e) => react("verdict", e)} />}
+      {!iAmOut && <ReactBar label={shown && ejected ? `Reacciona al cuerpo de ${body?.name}:` : undefined} onReact={react} />}
     </div>
   );
 }

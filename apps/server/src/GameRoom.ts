@@ -265,13 +265,17 @@ export class GameRoom extends Room<GameState> {
     });
 
     // Reacciones en vivo sobre tarjetas (no cuentan como voto).
-    this.onMessage("react", (client, { target, emoji }: { target: string; emoji: string }) => {
+    // El destino lo decide el server: votando, sobre tu propio cuerpo; en el anuncio, sobre el expulsado (o al aire si no salió nadie).
+    this.onMessage("react", (client, { emoji }: { emoji: string }) => {
       const me = this.pid(client);
-      if (!["UNMASK", "VOTE", "FINAL_VOTE", "VERDICT"].includes(this.state.phase) || !this.isActive(me)) return;
-      if (!REACTIONS.includes(emoji) || typeof target !== "string" || target.length > 40) return;
+      const ph = this.state.phase;
+      if (!["UNMASK", "VOTE", "FINAL_VOTE", "VERDICT"].includes(ph) || !this.isActive(me) || !REACTIONS.includes(emoji)) return;
       const now = Date.now();
       if (now - (this.lastReact.get(me) ?? 0) < 150) return;
       this.lastReact.set(me, now);
+      const target = ph === "VERDICT"
+        ? (this.verdict?.outcome === "ejected" && this.verdict.bodyId ? this.verdict.bodyId : "verdict")
+        : this.bodyOf.get(me) ?? me;
       this.broadcast("reaction", { target, emoji });
     });
 

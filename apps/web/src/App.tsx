@@ -289,7 +289,8 @@ function Game({ room }: { room: Room }) {
   };
   const stopTyping = (key: string) => setTyping((t) => { if (!(key in t)) return t; const n = { ...t }; delete n[key]; return n; });
 
-  const react = (target: string, emoji: string) => { sfx.click(); room.send("react", { target, emoji }); };
+  // El server decide dónde flota el emoji (sobre tu cuerpo al votar, sobre el expulsado en el anuncio).
+  const react = (emoji: string) => { sfx.click(); room.send("react", { emoji }); };
 
   useEffect(() => {
     room.onStateChange((st: any) => setS(st.toJSON()));
