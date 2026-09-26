@@ -144,6 +144,19 @@ export function useVoice(room: Room, s: StateView | null, me: { mindId: string; 
     return () => offs.forEach((off) => off());
   }, [room]);
 
+  // Si el AudioContext quedó suspendido (se creó sin un toque, p. ej. al volver al lobby), cualquier toque lo reactiva.
+  useEffect(() => {
+    const wake = () => {
+      const ctx = ctxRef.current;
+      if (ctx && ctx.state !== "running" && ctx.state !== "closed") {
+        void ctx.resume().then(() => { console.info("[voz] audio reactivado con un toque"); meshRef.current?.unblock(); setBlocked(false); });
+      }
+    };
+    window.addEventListener("pointerdown", wake);
+    window.addEventListener("keydown", wake);
+    return () => { window.removeEventListener("pointerdown", wake); window.removeEventListener("keydown", wake); };
+  }, []);
+
   // Sin voz en esta fase (o al desmontar) se suelta todo.
   useEffect(() => {
     if (!active) teardown();
@@ -195,6 +208,7 @@ export function useVoice(room: Room, s: StateView | null, me: { mindId: string; 
         meshRef.current = mesh;
         mesh.sync(idsRef.current);
         if (ctx.state !== "running") setBlocked(true);
+        console.info(`[voz] audio por Web Audio · AudioContext: ${ctx.state}${ctx.state !== "running" ? " (toca la página para activarlo)" : ""}`);
         setError("");
       } catch (e: any) {
         if (cancelled) return;

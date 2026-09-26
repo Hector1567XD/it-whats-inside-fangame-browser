@@ -326,6 +326,7 @@ function Game({ room }: { room: Room }) {
     room.onMessage("quota", ({ used }: { used: number }) => setUsed(used));
     room.onMessage("chatGraph", setGraph);
     room.onMessage("callState", setCalls);
+    room.onMessage("callDeclined", ({ byBody }: { byBody: string }) => { sfx.fail(); flash(`📵 ${room.state.players.get(byBody)?.name ?? "Alguien"} rechazó tu llamada`, "error"); });
     room.onMessage("typing", ({ body, dm }: { body: string; dm?: boolean }) => {
       const key = (dm ? "d:" : "g:") + body;
       setTyping((t) => ({ ...t, [key]: Date.now() + 3000 }));

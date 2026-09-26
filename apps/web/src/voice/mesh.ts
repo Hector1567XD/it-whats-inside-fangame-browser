@@ -60,7 +60,7 @@ type Peer = {
 export class VoiceMesh implements VoiceTransport {
   private peers = new Map<string, Peer>();
   private unsub: () => void;
-  private deaf = false;
+  private out: GainNode; // la voz de los demás suena por aquí (Web Audio), no por los <audio>
   private buf = new Uint8Array(512);
   private stream: MediaStream | null;
   private destroyed = false;
@@ -75,6 +75,8 @@ export class VoiceMesh implements VoiceTransport {
 
   constructor(private room: Room, private myId: string, private ctx: AudioContext, private track: MediaStreamTrack | null) {
     this.stream = track ? new MediaStream([track]) : null;
+    this.out = ctx.createGain();
+    this.out.connect(ctx.destination);
     console.info(`[voz] malla P2P · ICE: ${ICE.map((s) => [s.urls].flat().join(",")).join(" · ")}${hasTurn ? "" : " (sin TURN)"}`);
     this.unsub = room.onMessage("rtc", ({ from, data }: { from: string; data: Signal }) => this.onSignal(from, data));
   }
@@ -95,8 +97,7 @@ export class VoiceMesh implements VoiceTransport {
 
   /** Ensordecer: silencia todo lo que llega. */
   deafen(on: boolean) {
-    this.deaf = on;
-    for (const p of this.peers.values()) p.audio.muted = on;
+    this.out.gain.value = on ? 0 : 1;
   }
 
   /** Reintenta reproducir los <audio> bloqueados (llamar desde un toque). */
@@ -124,6 +125,7 @@ export class VoiceMesh implements VoiceTransport {
     this.destroyed = true;
     this.unsub();
     for (const id of [...this.peers.keys()]) this.close(id);
+    this.out.disconnect();
   }
 
   // ---------------- internos ----------------
@@ -159,7 +161,7 @@ export class VoiceMesh implements VoiceTransport {
     const audio = document.createElement("audio");
     audio.autoplay = true;
     audio.setAttribute("playsinline", "");
-    audio.muted = this.deaf;
+    audio.muted = true; // suena por Web Audio (ver VoiceSfu.onTrack)
     audio.style.display = "none";
     document.body.appendChild(audio);
     const peer: Peer = {
@@ -208,6 +210,7 @@ export class VoiceMesh implements VoiceTransport {
       peer.analyser = this.ctx.createAnalyser();
       peer.analyser.fftSize = 512;
       peer.source.connect(peer.analyser);
+      peer.source.connect(this.out);
     };
     this.onChange();
     return peer;

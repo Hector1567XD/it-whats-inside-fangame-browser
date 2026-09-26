@@ -107,6 +107,13 @@ export const sfx = {
   drumroll: (dur = 1.2) => { for (let t = 0; t < dur; t += 0.05) noise(0.06, { at: t, from: 1500, to: 1200, vol: 0.05 + (t / dur) * 0.1, q: 0.7 }); },
   reveal: () => { tone(1320, 0.5, { type: "sine", vol: 0.2 }); tone(1980, 0.4, { type: "sine", vol: 0.1, at: 0.02 }); },
   fail: () => notes([400, 300], 0.15, { type: "sawtooth", vol: 0.06 }),
+  // 📲 Timbre de teléfono (440 + 480 Hz, dos toques), fuerte para que se note la llamada.
+  ring: () => {
+    for (const at of [0, 0.5]) {
+      tone(440, 0.4, { type: "sine", vol: 0.35, at, attack: 0.02 });
+      tone(480, 0.4, { type: "sine", vol: 0.35, at, attack: 0.02 });
+    }
+  },
   win: () => {
     notes([523, 659, 784], 0.1, { type: "square", vol: 0.08 });
     notes([1047, 1047, 1319, 1568], 0.12, { type: "square", vol: 0.08, at: 0.35 });

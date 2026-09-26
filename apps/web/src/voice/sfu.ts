@@ -58,12 +58,14 @@ export class VoiceSfu implements VoiceTransport {
   private stale = false;
   private again = false;
   private destroyed = false;
-  private deaf = false;
   private buf = new Uint8Array(512);
   private unsub: () => void;
+  private out: GainNode; // la voz de los demás suena por aquí (Web Audio), no por los <audio>
 
   constructor(private room: Room, private myId: string, private ctx: AudioContext, private track: MediaStreamTrack | null, private ice: RTCIceServer[]) {
     this.unsub = room.onMessage("sfuPubs", (a: Audible) => this.setAudible(a));
+    this.out = ctx.createGain();
+    this.out.connect(ctx.destination);
     this.sub = this.newPc("recepción");
     this.sub.ontrack = (e) => this.onTrack(e);
     this.sub.addEventListener("connectionstatechange", () => {
@@ -194,7 +196,6 @@ export class VoiceSfu implements VoiceTransport {
         this.retry.delete(t.pid);
       }
     }
-    console.debug(`[voz] DEBUGPULL epoch=${this.epoch} pedidos=${pull.join(",")} → ${JSON.stringify(r.tracks)} sdpType=${r.sdp?.type}`);
     if (r.sdp) {
       await this.sub.setRemoteDescription(r.sdp);
       await this.sub.setLocalDescription();
@@ -206,13 +207,15 @@ export class VoiceSfu implements VoiceTransport {
 
   private onTrack(e: RTCTrackEvent) {
     const pid = this.pidOfMid.get(e.transceiver.mid ?? "");
-    if (!pid) return console.warn("[voz] llegó una pista sin dueño conocido", e.transceiver.mid, "DEBUGMAP", JSON.stringify([...this.pidOfMid]));
+    if (!pid) return console.warn("[voz] llegó una pista sin dueño conocido", e.transceiver.mid);
     this.dropRemote(pid);
     const stream = new MediaStream([e.track]);
     const audio = document.createElement("audio");
     audio.autoplay = true;
     audio.setAttribute("playsinline", "");
-    audio.muted = this.deaf;
+    // El <audio> va en silencio (Chrome lo necesita para pasarle el audio a Web Audio, y en silencio nunca lo
+    // bloquea el autoplay). Suena por el AudioContext, que se abrió con el toque del botón.
+    audio.muted = true;
     audio.style.display = "none";
     audio.srcObject = stream;
     document.body.appendChild(audio);
@@ -222,6 +225,7 @@ export class VoiceSfu implements VoiceTransport {
     const analyser = this.ctx.createAnalyser();
     analyser.fftSize = 512;
     source.connect(analyser);
+    source.connect(this.out);
     this.remotes.set(pid, { audio, source, analyser });
     this.state[pid] = this.sub.connectionState === "connected" ? "connected" : "connecting";
     console.info(`[voz] ✔ recibiendo la voz de ${this.name(pid)}`);
@@ -250,8 +254,7 @@ export class VoiceSfu implements VoiceTransport {
   }
 
   deafen(on: boolean) {
-    this.deaf = on;
-    for (const r of this.remotes.values()) r.audio.muted = on;
+    this.out.gain.value = on ? 0 : 1;
   }
 
   unblock() {
@@ -281,5 +284,6 @@ export class VoiceSfu implements VoiceTransport {
     for (const id of [...this.remotes.keys()]) this.dropRemote(id);
     this.pub?.close();
     this.sub.close();
+    this.out.disconnect();
   }
 }

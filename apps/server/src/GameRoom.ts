@@ -255,8 +255,8 @@ export class GameRoom extends Room<GameState> {
       this.sendChatGraph();
     });
 
-    // 🌙📞 Chat privado por voz: llamar a un cuerpo (iniciar gasta 1 del cupo, igual que un DM; contestar es gratis).
-    // Solo se oyen si los dos se eligieron. Llamar a otro cuelga la llamada anterior.
+    // 🌙📞 Chat privado por voz: llamar a un cuerpo. Llamadas ilimitadas, pero una a la vez: llamar a otro cuelga la
+    // anterior. Solo se oyen si los dos se eligieron (el otro contesta llamándote de vuelta, o rechaza).
     this.onMessage("call", (client, { toBody }: { toBody?: string }) => {
       const me = this.pid(client);
       if (this.state.phase !== "NIGHT" || !this.voiceInGame() || !this.isActive(me) || typeof toBody !== "string") return;
@@ -264,18 +264,21 @@ export class GameRoom extends Room<GameState> {
       if (!target || target === me || !this.isActive(target)) return;
       const key = [me, target].sort().join("|");
       if (!this.dmPairs.has(key)) {
-        const used = this.initiated.get(me) ?? 0;
-        if (used >= this.state.chatLimit) {
-          return this.err(client, `Ya usaste tus ${this.state.chatLimit} llamadas de esta noche 🔒 (solo puedes contestar a quien te llame)`);
-        }
         this.dmPairs.add(key);
-        this.initiated.set(me, used + 1);
-        client.send("quota", { used: used + 1 });
         // Para el grafo de los espectadores: la llamada cuenta como un mensaje (sin contenido).
         this.dmLog.push({ a: me, b: target, fromBody: this.bodyOf.get(me)!, text: "📞", ts: Date.now() });
         this.sendChatGraph();
       }
       this.callTarget.set(me, target);
+      this.pushAudible();
+    });
+
+    this.onMessage("decline", (client, { fromBody }: { fromBody?: string }) => {
+      const me = this.pid(client);
+      const caller = typeof fromBody === "string" ? this.mindInBody(fromBody) : undefined;
+      if (this.state.phase !== "NIGHT" || !caller || this.callTarget.get(caller) !== me) return;
+      this.callTarget.delete(caller);
+      this.clientOf(caller)?.send("callDeclined", { byBody: this.bodyOf.get(me) });
       this.pushAudible();
     });
 
