@@ -59,6 +59,16 @@ Seguridad del secreto: el mapeo mente→cuerpo vive **solo en memoria privada de
 - Recargar la página reconecta sola (token de Colyseus, 120 s de gracia).
 - Si eso falla (otro dispositivo, se borró la pestaña, conexión "zombie"), entra a la sala con **el mismo nombre**: te pregunta "¿eres tú?" y retomas ese lugar (cuerpo, puntos, chats). Si la otra conexión seguía viva, se la saca con un aviso. Con la partida en curso solo se puede entrar así, eligiendo quién eras. Es inseguro a propósito: cualquiera que sepa tu nombre puede tomar tu lugar.
 
+## Voz en el lobby 🎙️
+
+Solo en la sala de espera: al empezar la partida se corta y al volver al lobby se rearma sola.
+
+- La voz se modula **en el navegador** de quien habla (`apps/web/src/voice/`); a los demás solo les llega la voz procesada. Motores en orden de fallback: Signalsmith Stretch → Tone.js → nativo → robot. Para probar uno: `?voiceEngine=signalsmith|tone|native|robot`.
+- El audio va **P2P** (malla WebRTC, 1 conexión por jugador) y Colyseus solo hace de señalización (mensaje `rtc`). No pasa por el server.
+- **ICE:** por defecto solo STUN público. En redes 4G, CGNAT o corporativas hace falta un **TURN** (p. ej. coturn propio): `VITE_ICE_SERVERS='[{"urls":"stun:stun.l.google.com:19302"},{"urls":"turn:mi.turn:3478","username":"u","credential":"p"}]'`. Se lee al compilar el front, así que en Render va como variable de entorno del build y hay que redeployar.
+- **Diagnóstico:** la consola del navegador muestra los pasos con el prefijo `[voz]` (candidatos ICE, estados y el motivo si falla). El server imprime cada minuto `📊 CPU · RAM · salas · clientes · señales voz` (`STATS_SECONDS`, 0 = apagado) y los errores no capturados.
+- **Probar en el celular:** `getUserMedia` exige https o localhost, así que por la IP de la red local el micrófono no anda. Usa `HTTPS=1 npm run dev` (certificado autofirmado, Vite hace de proxy al server) y entra a `https://<tu-ip>:5173`, o usa un túnel.
+
 ## Créditos de avatares
 
 [DiceBear](https://www.dicebear.com) (MIT). Estilos: Big Smile (Ashley Seo), Adventurer (Lisa Wischofsky), Croodles (vijay verma) — CC BY 4.0.

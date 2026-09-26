@@ -159,7 +159,7 @@ Hasta 12 jugadores en todos los modos.
 - **Para después:** reacciones a mensajes del chat, subhilos (responder a una respuesta), tema fijado en el chat global.
 - **Descartado:** respuestas sugeridas, la encuesta del grupo y la captura filtrada.
 - Mockups: `mockups/fases-antes-despues.html` (v1) y `mockups/fases-v2.html` (v2; se implementó todo menos la narrativa y la voz).
-- **Voz:** en investigación, sin implementar. Ver `mockups/voz-v3.html`.
+- **Voz (26/09/2026) ✅ solo en el LOBBY:** voz modulada en el cliente (Signalsmith → Tone → nativo → robot; tipos Femenina/Masculina/Neutra con variantes por orden de llegada, walkie 0–2 del host) y malla P2P WebRTC con Colyseus como señalización. Fuera del lobby no hay voz. Para usarla dentro de la partida hará falta un SFU con identidades de cuerpo (la malla P2P delata la mente). Sin TURN, algunas redes no conectan. Plan: `plan-voice-chat.md`; motores probados en `mockups/voz-v5.html`.
 
 ## Sin decidir
 

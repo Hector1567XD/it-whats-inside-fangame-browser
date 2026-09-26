@@ -1,4 +1,5 @@
 import type { Room } from "colyseus.js";
+import type { VoiceTransport } from "./transport";
 
 /** STUN público por defecto; `VITE_ICE_SERVERS` (JSON, RTCIceServer[]) para poner un TURN propio. */
 function iceServers(): RTCIceServer[] {
@@ -57,7 +58,7 @@ type Peer = {
  * - toda otra señal lleva `s` y `t`, y se descarta si no coincide con las sesiones actuales (era para una malla vieja).
  * Así no importa si el otro todavía no tenía la malla armada cuando le escribimos: al armarla nos manda su `hello`.
  */
-export class VoiceMesh {
+export class VoiceMesh implements VoiceTransport {
   private peers = new Map<string, Peer>();
   private unsub: () => void;
   private deaf = false;
@@ -70,6 +71,7 @@ export class VoiceMesh {
   state: Record<string, RTCPeerConnectionState> = {};
   /** Algún <audio> no pudo arrancar sin un toque (Safari/iOS). */
   blocked = false;
+  problem = "";
   onChange: () => void = () => {};
 
   constructor(private room: Room, private myId: string, private ctx: AudioContext, private track: MediaStreamTrack | null) {

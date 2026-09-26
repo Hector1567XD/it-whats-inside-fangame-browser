@@ -3,6 +3,9 @@ import type { Room } from "colyseus.js";
 import type { StateView } from "../net";
 import { VoiceChain, type WalkieLevel } from "./chain";
 import { VoiceMesh } from "./mesh";
+import { VoiceSfu } from "./sfu";
+import { sfuRequest } from "./rpc";
+import type { VoiceTransport } from "./transport";
 import { DEFAULT_F0, isVoiceType, paramsFor, type VoiceType } from "./presets";
 import type { EngineId } from "./engines";
 
@@ -43,7 +46,9 @@ export function useVoice(room: Room, s: StateView | null, myId: string | undefin
   const [error, setError] = useState("");
   const ctxRef = useRef<AudioContext | null>(null);
   const chainRef = useRef<VoiceChain | null>(null);
-  const meshRef = useRef<VoiceMesh | null>(null);
+  const meshRef = useRef<VoiceTransport | null>(null);
+  const [transport, setTransport] = useState<"sfu" | "p2p" | null>(null);
+  const [problem, setProblem] = useState("");
   const idsRef = useRef<string[]>([]);
   const opening = useRef<Promise<VoiceChain> | null>(null);
   const lastEngine = useRef<EngineId | null>(null);
@@ -83,6 +88,8 @@ export function useVoice(room: Room, s: StateView | null, myId: string | undefin
     setSpeaking({});
     setPeers({});
     setBlocked(false);
+    setProblem("");
+    setTransport(null);
   }
 
   /** Suelta todo: peers, micrófono y AudioContext. */
@@ -107,6 +114,12 @@ export function useVoice(room: Room, s: StateView | null, myId: string | undefin
     if (next === "off") teardown(); // soltar el micrófono que abrió el modal
     setMode(next);
   }
+
+  // Sin transporte activo igual llegan estos mensajes: handlers vacíos para que colyseus.js no avise.
+  useEffect(() => {
+    const offs = ["rtc", "sfu", "sfuPubs"].map((t) => room.onMessage(t, () => {}));
+    return () => offs.forEach((off) => off());
+  }, [room]);
 
   // Fuera del lobby (o al desmontar) se suelta todo.
   useEffect(() => {
@@ -142,10 +155,16 @@ export function useVoice(room: Room, s: StateView | null, myId: string | undefin
         room.send("voiceProfile", mode === "mic"
           ? { voice: p?.voice ?? "neutral", micOn: !live.current.muted }
           : { voice: "listen", micOn: false });
-        const mesh = new VoiceMesh(room, myId, ctx, track);
+        // Con el SFU de Cloudflare configurado en el server, el audio pasa por él; si no, malla P2P.
+        const cfg = await sfuRequest<{ sfu: boolean; iceServers: RTCIceServer[] }>(room, "config", {}, 5000)
+          .catch(() => ({ sfu: false, iceServers: [] }));
+        if (cancelled) return;
+        const mesh: VoiceTransport = cfg.sfu ? new VoiceSfu(room, myId, ctx, track, cfg.iceServers) : new VoiceMesh(room, myId, ctx, track);
+        setTransport(cfg.sfu ? "sfu" : "p2p");
         mesh.onChange = () => {
           setPeers({ ...mesh.state });
           setBlocked(mesh.blocked);
+          setProblem(mesh.problem);
         };
         mesh.deafen(deaf);
         meshRef.current = mesh;
@@ -219,7 +238,7 @@ export function useVoice(room: Room, s: StateView | null, myId: string | undefin
   }
 
   return {
-    mode, profile, muted, deaf, engine, speaking, peers, blocked, error, walkie,
+    mode, profile, muted, deaf, engine, speaking, peers, blocked, error, walkie, transport, problem,
     showSetup: inLobby && (setupOpen || (!decided && mode === "off")),
     chain: chainRef,
     ensureCtx, ensureChain, finish, predictVariant,

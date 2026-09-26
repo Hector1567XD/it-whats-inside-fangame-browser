@@ -1,6 +1,7 @@
 import { Room, Client, ServerError, type Deferred } from "@colyseus/core";
 import { GameState, Player, Post, Reply, type Mode, type Phase, type Settings } from "./GameState.js";
 import { QUESTIONS } from "./questions.js";
+import { sfu, sfuEnabled, iceServers, type SessionDescription } from "./sfu.js";
 import {
   MODES, autoChats, autoCycles, isImmutableMode, minPlayersFor, resolveUnmask, resolvePlurality, skipNeeded, swapCount,
   POINTS, type Verdict,
@@ -75,7 +76,12 @@ const VOICES = ["", "listen", "fem", "masc", "neutral"];
 const RTC_MAX_BYTES = 20_000; // una oferta SDP de audio pesa ~3-6 KB
 const RTC_PER_SECOND = 50;
 /** Contadores de la señalización de voz, para el log periódico de index.ts. */
-export const rtcStats = { relayed: 0, dropped: 0 };
+export const rtcStats = { relayed: 0, dropped: 0, sfuCalls: 0, sfuErrors: 0 };
+const VOICE_TRACK = "voice";
+
+/** Voz por Cloudflare SFU: sesiones de cada jugador (privado; el navegador nunca ve los ids de los demás). */
+type SfuPeer = { pub?: string; pubMid?: string; ready: boolean; sub?: string };
+type SfuMsg = { rid?: number; op?: string; sdp?: SessionDescription; mid?: string; pids?: string[]; mids?: string[] };
 
 export class GameRoom extends Room<GameState> {
   maxClients = MAX_PLAYERS * 2; // holgura para que alguien retome su lugar aunque la sala esté llena
@@ -120,6 +126,7 @@ export class GameRoom extends Room<GameState> {
   private joinSeq = new Map<string, number>();
   private nextJoin = 0;
   private rtcWindow = new Map<string, { start: number; count: number }>();
+  private sfuPeers = new Map<string, SfuPeer>();
 
   onCreate(opts: { mode?: string }) {
     this.roomId = newCode();
@@ -321,6 +328,10 @@ export class GameRoom extends Room<GameState> {
       rtcStats.relayed++;
     });
 
+    // Voz por Cloudflare SFU: el navegador pide cada operación y el server la hace con el secreto de la app.
+    // Cada petición lleva un `rid` y se contesta con el mismo `rid` (ok o error).
+    this.onMessage("sfu", (client, msg: SfuMsg) => { void this.onSfu(client, msg ?? {}); });
+
     this.onMessage("settings", (client, patch: Partial<Record<keyof Settings, number | string | boolean>>) => {
       if (!this.isHost(client) || this.state.phase !== "LOBBY" || !patch || typeof patch !== "object") return;
       const s = this.state.settings;
@@ -420,6 +431,7 @@ export class GameRoom extends Room<GameState> {
     this.pendingReconnect.delete(pid);
     pending?.reject(new Error("taken over"));
     this.bind(client, pid);
+    this.sfuDrop(pid); // la conexión nueva vuelve a publicar
     if (old && old !== client) {
       old.send("kicked", { message: `Alguien entró como ${p.name} desde otro lugar y tomó tu lugar.` });
       old.leave(4000);
@@ -439,6 +451,7 @@ export class GameRoom extends Room<GameState> {
     const p = this.state.players.get(id);
     if (!p) return;
 
+    this.sfuDrop(id);
     if (this.state.phase === "LOBBY") {
       this.state.players.delete(id);
       this.joinSeq.delete(id);
@@ -795,6 +808,8 @@ export class GameRoom extends Room<GameState> {
 
   private setPhase(phase: Phase, seconds: number) {
     const changed = this.state.phase !== phase;
+    if (changed && this.state.phase === "LOBBY") for (const id of [...this.sfuPeers.keys()]) this.sfuDrop(id, false);
+    if (changed && this.state.phase === "LOBBY") this.broadcastSfuPubs();
     this.state.phase = phase;
     this.state.timer = seconds;
     for (const p of this.state.players.values()) p.skipVote = false;
@@ -993,6 +1008,104 @@ export class GameRoom extends Room<GameState> {
     this.setPhase("LOBBY", 0);
     this.reassignHost();
     this.clients.forEach((c) => this.sendIdentity(c));
+  }
+
+  // ---------------- voz por SFU ----------------
+
+  private async onSfu(client: Client, msg: SfuMsg) {
+    const me = this.pid(client);
+    const reply = (data: object) => client.send("sfu", { rid: msg.rid, ...data });
+    const op = msg.op;
+    // "config" se puede pedir siempre: dice si hay SFU y con qué ICE conectarse.
+    if (op === "config") return reply({ ok: true, sfu: sfuEnabled(), iceServers: sfuEnabled() ? await iceServers() : [] });
+    if (!sfuEnabled()) return reply({ error: "El SFU no está configurado" });
+    if (this.state.phase !== "LOBBY" || !this.state.players.has(me)) return reply({ error: "La voz solo funciona en la sala de espera" });
+    const peer = this.sfuPeers.get(me) ?? { ready: false };
+    this.sfuPeers.set(me, peer);
+    const who = this.state.players.get(me)?.name ?? me;
+    rtcStats.sfuCalls++;
+    try {
+      switch (op) {
+        case "publish": {
+          if (msg.sdp?.type !== "offer" || typeof msg.sdp.sdp !== "string" || typeof msg.mid !== "string") throw new Error("oferta inválida");
+          if (peer.pub) this.sfuClosePub(peer);
+          const session = await sfu.newSession();
+          const r = await sfu.push(session, msg.sdp, msg.mid, VOICE_TRACK);
+          const t = r.tracks?.[0];
+          if (t?.errorCode || !r.sessionDescription) throw new Error(`no se pudo publicar: ${t?.errorCode ?? "sin respuesta"} ${t?.errorDescription ?? ""}`);
+          Object.assign(peer, { pub: session, pubMid: msg.mid, ready: false });
+          console.log(`[voz] ${this.roomId}: ${who} publica su voz en el SFU`);
+          return reply({ ok: true, sdp: r.sessionDescription });
+        }
+        case "ready": // el navegador ya está conectado y mandando audio: los demás se pueden suscribir
+          if (!peer.pub) throw new Error("no hay publicación");
+          peer.ready = true;
+          this.broadcastSfuPubs();
+          return reply({ ok: true });
+        case "subscribe": {
+          peer.sub = await sfu.newSession();
+          return reply({ ok: true, pubs: this.sfuPubs() });
+        }
+        case "pull": {
+          if (!peer.sub) throw new Error("no hay sesión de recepción");
+          const pids = (Array.isArray(msg.pids) ? msg.pids : []).filter((id) => id !== me && this.sfuPeers.get(id)?.ready);
+          if (pids.length === 0) return reply({ ok: true, tracks: [] });
+          const bySession = new Map(pids.map((id) => [this.sfuPeers.get(id)!.pub!, id]));
+          const r = await sfu.pull(peer.sub, [...bySession.keys()].map((sessionId) => ({ sessionId, trackName: VOICE_TRACK })));
+          const tracks = (r.tracks ?? []).map((t) => ({
+            pid: bySession.get(t.sessionId ?? "") ?? "", mid: t.mid, error: t.errorCode,
+          }));
+          const failed = tracks.filter((t) => t.error);
+          if (failed.length) console.warn(`[voz] ${this.roomId}: ${who} no pudo recibir a ${failed.map((t) => `${this.state.players.get(t.pid)?.name ?? t.pid} (${t.error})`).join(", ")}`);
+          return reply({ ok: true, tracks, sdp: r.sessionDescription, renegotiate: !!r.requiresImmediateRenegotiation });
+        }
+        case "renegotiate":
+          if (!peer.sub || msg.sdp?.type !== "answer" || typeof msg.sdp.sdp !== "string") throw new Error("respuesta inválida");
+          await sfu.renegotiate(peer.sub, msg.sdp);
+          return reply({ ok: true });
+        case "close": {
+          const mids = (Array.isArray(msg.mids) ? msg.mids : []).filter((m) => typeof m === "string");
+          if (peer.sub && mids.length) await sfu.close(peer.sub, mids);
+          return reply({ ok: true });
+        }
+        case "leave": // el jugador sale de la voz (o pasa a solo escuchar)
+          this.sfuDrop(me);
+          return reply({ ok: true });
+        default:
+          throw new Error(`operación desconocida: ${op}`);
+      }
+    } catch (e) {
+      rtcStats.sfuErrors++;
+      const message = e instanceof Error ? e.message : String(e);
+      console.error(`[voz] ${this.roomId}: error SFU (${op}) de ${who}: ${message}`);
+      return reply({ error: message });
+    }
+  }
+
+  /** Quién tiene la voz publicada y lista (para que los demás se suscriban). */
+  private sfuPubs() {
+    return [...this.sfuPeers.entries()].filter(([, p]) => p.ready && p.pub).map(([id]) => id);
+  }
+
+  private broadcastSfuPubs() {
+    this.broadcast("sfuPubs", this.sfuPubs());
+  }
+
+  private sfuClosePub(peer: SfuPeer) {
+    if (peer.pub && peer.pubMid) {
+      sfu.close(peer.pub, [peer.pubMid]).catch((e) => console.warn("[voz] no se pudo cerrar una publicación:", e.message));
+    }
+    Object.assign(peer, { pub: undefined, pubMid: undefined, ready: false });
+  }
+
+  /** Olvida las sesiones SFU de un jugador y deja de publicar su voz. */
+  private sfuDrop(pid: string, announce = true) {
+    const peer = this.sfuPeers.get(pid);
+    if (!peer) return;
+    const wasPublic = peer.ready;
+    this.sfuClosePub(peer);
+    this.sfuPeers.delete(pid);
+    if (announce && wasPublic) this.broadcastSfuPubs();
   }
 
   // ---------------- helpers ----------------

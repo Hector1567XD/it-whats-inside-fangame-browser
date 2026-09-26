@@ -7,6 +7,13 @@ import { fileURLToPath } from "node:url";
 import { Server, matchMaker } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import { GameRoom, rtcStats } from "./GameRoom.js";
+import { sfuEnabled } from "./sfu.js";
+
+// .env local para `npm run dev` (apps/server/.env o el de la raíz del repo). En Render vienen del panel.
+const here = path.dirname(fileURLToPath(import.meta.url));
+for (const f of [path.resolve(here, "../.env"), path.resolve(here, "../../../.env")]) {
+  if (fs.existsSync(f)) process.loadEnvFile(f);
+}
 
 const PORT = Number(process.env.PORT ?? 2567);
 const app = express();
@@ -32,7 +39,12 @@ const server = http.createServer(app);
 const gameServer = new Server({ transport: new WebSocketTransport({ server }) });
 gameServer.define("game", GameRoom);
 
-gameServer.listen(PORT).then(() => console.log(`🎮 Servidor en http://localhost:${PORT}`));
+gameServer.listen(PORT).then(() => {
+  console.log(`🎮 Servidor en http://localhost:${PORT}`);
+  console.log(sfuEnabled()
+    ? `🎙️ Voz por Cloudflare SFU${process.env.CF_TURN_KEY_ID ? " + TURN" : ""}`
+    : "🎙️ Voz P2P (malla): faltan CF_SFU_APP_ID / CF_SFU_APP_TOKEN para usar el SFU de Cloudflare");
+});
 
 // Errores que antes se perdían: que queden en el log (Render › Logs).
 process.on("uncaughtException", (e) => console.error("💥 uncaughtException:", e));
@@ -55,8 +67,9 @@ if (STATS_SECONDS > 0) {
     console.log(
       `📊 CPU ${((100 * (cpu.user + cpu.system)) / elapsed).toFixed(1)}% · RAM ${mb(m.rss)} (heap ${mb(m.heapUsed)}/${mb(m.heapTotal)})` +
       ` · sistema ${mb(os.totalmem() - os.freemem())}/${mb(os.totalmem())} · load ${os.loadavg()[0].toFixed(2)}` +
-      ` · salas ${rooms.length} · clientes ${clients} · señales voz ${rtcStats.relayed} ok / ${rtcStats.dropped} descartadas`,
+      ` · salas ${rooms.length} · clientes ${clients} · voz: P2P ${rtcStats.relayed} ok / ${rtcStats.dropped} descartadas` +
+      ` · SFU ${rtcStats.sfuCalls} llamadas / ${rtcStats.sfuErrors} errores`,
     );
-    rtcStats.relayed = rtcStats.dropped = 0;
+    rtcStats.relayed = rtcStats.dropped = rtcStats.sfuCalls = rtcStats.sfuErrors = 0;
   }, STATS_SECONDS * 1000).unref();
 }

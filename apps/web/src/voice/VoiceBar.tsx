@@ -29,8 +29,10 @@ export function VoiceBar({ v, P }: { v: Voice; P: (id: string) => PlayerView | u
       <span className="voice-note">
         {v.mode === "listen" ? "🎧 Solo escuchas" : v.profile && isVoiceType(v.profile.voice) && `${VOICE_TYPES[v.profile.voice].icon} ${VOICE_TYPES[v.profile.voice].label}`}
         {v.engine && ` · motor: ${ENGINE_LABELS[v.engine]}`}
+        {v.transport && (v.transport === "sfu" ? " · vía servidor" : " · P2P")}
       </span>
       {v.blocked && <button className="chip warn" onClick={() => { sfx.click(); v.unblock(); }}>🔈 Activar audio</button>}
+      {v.problem && <span className="voice-note bad">{v.problem}</span>}
       {failed.length > 0 && <span className="voice-note bad">No se pudo conectar con {failed.join(", ")} <small>(detalle en la consola, [voz])</small></span>}
     </div>
   );
