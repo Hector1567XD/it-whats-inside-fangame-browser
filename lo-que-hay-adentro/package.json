@@ -1,0 +1,11 @@
+{
+  "name": "lo-que-hay-adentro",
+  "private": true,
+  "workspaces": ["apps/*"],
+  "scripts": {
+    "dev": "concurrently -n server,web -c magenta,cyan \"npm run dev -w server\" \"npm run dev -w web\"",
+    "build": "npm run build -w web && npm run build -w server",
+    "start": "npm run start -w server"
+  },
+  "devDependencies": { "concurrently": "^9.1.0" }
+}
