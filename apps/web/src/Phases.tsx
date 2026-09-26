@@ -3,6 +3,8 @@ import type { Room } from "colyseus.js";
 import { Avatar } from "./Avatar";
 import { Composer, GroupChat, RichText, handle, type Lookup, type Me, type Seed } from "./Chat";
 import { sfx } from "./sfx";
+import { VoiceRoom } from "./voice/VoicePhases";
+import type { Voice } from "./voice/useVoice";
 import { activeCount, type ChatMsg, type PlayerView, type PostView, type ReplyView, type StateView } from "./net";
 
 /** ❤️ y 🤨 que di yo (el server solo guarda los conteos). */
@@ -232,14 +234,14 @@ export function ThreadPhase({ room, s, me, P, players, social, typing }: {
 
 // ======================= CHAT GLOBAL (con Cotorra al lado) =======================
 
-export function DayView({ room, s, chat, me, P, players, social, typing }: {
-  room: Room; s: StateView; chat: ChatMsg[]; me: Me; P: Lookup; players: PlayerView[]; social: Social; typing: Set<string>;
+export function DayView({ room, s, chat, me, P, players, social, typing, voice }: {
+  room: Room; s: StateView; chat: ChatMsg[]; me: Me; P: Lookup; players: PlayerView[]; social: Social; typing: Set<string>; voice: Voice;
 }) {
   const [quote, setQuote] = useState<PostView | null>(null);
   const speakAs = P(me.bodyId)?.name ?? "";
   const spectator = !!me.spectator;
   const people = players.filter((p) => !p.bodyOut);
-  const chatEl = (
+  const chatEl = voice.inGame ? <VoiceRoom v={voice} people={people} me={me} P={P} /> : (
     <GroupChat room={room} entries={chat} me={me} P={P} people={people} speakAs={speakAs} readOnly={spectator}
       heads={people} typing={typing} quote={quote} onClearQuote={() => setQuote(null)} />
   );
@@ -257,7 +259,7 @@ export function DayView({ room, s, chat, me, P, players, social, typing }: {
             <div key={p.id} className="kmini">
               {mostReplies > 0 && p.replies.length === mostReplies && <span className="khot">🔥 más cotorreado</span>}
               <PostCard post={p} P={P} people={people} myId={me.bodyId} replies={p.replies.length} social={spectator ? undefined : social}
-                onCite={spectator ? undefined : () => { sfx.pop(); setQuote(p); }} />
+                onCite={spectator || voice.inGame ? undefined : () => { sfx.pop(); setQuote(p); }} />
             </div>
           ))}
         </div>

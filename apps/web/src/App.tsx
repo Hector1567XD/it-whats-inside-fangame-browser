@@ -4,7 +4,7 @@ import type { Room } from "colyseus.js";
 import {
   client, saveReconnect, loadReconnect, clearReconnect, roomInfo, autoChats, autoCycles, skipNeeded, isImmutableMode, MODES,
   type StateView, type ChatMsg, type DmMsg, type ResultsPayload, type PlayerView, type Settings, type Mode, type Phase,
-  type Role, type Verdict, type ChatEdge, ghostCount,
+  type Role, type Verdict, type ChatEdge, type CallState, ghostCount,
 } from "./net";
 import { Avatar, STYLES, STYLE_IDS, randomSeed, validAvatar, type StyleId } from "./Avatar";
 import { PhaseBanner, Stars, SwapScreen } from "./Overlay";
@@ -16,6 +16,7 @@ import { sfx, isMuted, setMuted } from "./sfx";
 import { useVoice, type Voice } from "./voice/useVoice";
 import { VoiceSetup } from "./voice/VoiceSetup";
 import { VoiceBar, voiceIcon } from "./voice/VoiceBar";
+import { NightVoice } from "./voice/VoicePhases";
 
 const COLORS = ["#ff4d8d", "#ff8a3d", "#ffd23d", "#5ee37a", "#3dd6ff", "#6c7bff", "#b36bff", "#ffffff"];
 const randomColor = () => COLORS[Math.floor(Math.random() * COLORS.length)];
@@ -260,6 +261,7 @@ function Game({ room }: { room: Room }) {
   const [dms, setDms] = useState<Record<string, DmMsg[]>>({});
   const [used, setUsed] = useState(0);
   const [graph, setGraph] = useState<ChatEdge[]>([]); // solo llega si soy espectador
+  const [calls, setCalls] = useState<CallState>({ target: "", incoming: [], pairs: [] }); // 🌙 llamadas por voz
   const [results, setResults] = useState<ResultsPayload | null>(null);
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [floats, setFloats] = useState<Floater[]>([]);
@@ -323,6 +325,7 @@ function Game({ room }: { room: Room }) {
     });
     room.onMessage("quota", ({ used }: { used: number }) => setUsed(used));
     room.onMessage("chatGraph", setGraph);
+    room.onMessage("callState", setCalls);
     room.onMessage("typing", ({ body, dm }: { body: string; dm?: boolean }) => {
       const key = (dm ? "d:" : "g:") + body;
       setTyping((t) => ({ ...t, [key]: Date.now() + 3000 }));
@@ -392,8 +395,9 @@ function Game({ room }: { room: Room }) {
         )}
         {s.phase === "QUESTION" && <QuestionPhase room={room} s={s} me={me} P={P} players={players} />}
         {s.phase === "THREAD" && <ThreadPhase room={room} s={s} me={me} P={P} players={players} social={social} typing={typingIn("g:")} />}
-        {s.phase === "DAY" && <DayView room={room} s={s} chat={chat} me={me} P={P} players={players} social={social} typing={typingIn("g:")} />}
-        {s.phase === "NIGHT" && <Night room={room} s={s} players={players} me={me} dms={dms} used={used} P={P} typing={typingIn("d:")} seen={seen} graph={graph} />}
+        {s.phase === "DAY" && <DayView room={room} s={s} chat={chat} me={me} P={P} players={players} social={social} typing={typingIn("g:")} voice={voice} />}
+        {s.phase === "NIGHT" && voice.inGame && <NightVoice room={room} s={s} players={players} me={me} used={used} P={P} v={voice} calls={calls} graph={graph} />}
+        {s.phase === "NIGHT" && !voice.inGame && <Night room={room} s={s} players={players} me={me} dms={dms} used={used} P={P} typing={typingIn("d:")} seen={seen} graph={graph} />}
         {["UNMASK", "VOTE", "FINAL_VOTE"].includes(s.phase) && (
           <VotePhase key={s.phase + s.cycle} room={room} s={s} me={me} role={role} P={P} players={players} floats={floats} react={react} />
         )}
@@ -618,6 +622,8 @@ function SettingsPanel({ s, isHost, room, players }: { s: StateView; isHost: boo
       <ModePicker mode={st.mode} disabled={!isHost} onChange={(m) => set({ mode: m })} />
       {rows.map(row)}
       <div className="checks">
+        <Toggle label={<>🎙️ Chat global y privado por voz{!s.sfu && <small className="muted"> (requiere el servidor de voz)</small>}</>}
+          on={st.voicePhases} disabled={!isHost || !s.sfu} onChange={(v) => set({ voicePhases: v })} />
         <Toggle label={`${voteName} entre ciclos`} on={st.earlyVote} disabled={!isHost} onChange={toggleEarly} />
         {st.earlyVote && st.mode === "classic" && (
           <Toggle label="Se puede desenmascarar a quien no cambió" on={st.unmaskSame} disabled={!isHost} onChange={(v) => set({ unmaskSame: v })} />
