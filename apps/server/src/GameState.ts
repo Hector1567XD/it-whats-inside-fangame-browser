@@ -2,7 +2,7 @@ import { Schema, MapSchema, ArraySchema, type } from "@colyseus/schema";
 
 /**
  * Estado PÚBLICO (se sincroniza con todos los clientes).
- * OJO: aquí NO va el mapeo mente -> cuerpo. Eso vive privado en GameRoom.
+ * OJO: aquí NO va el mapeo mente -> cuerpo ni quién es el Inmutable. Eso vive privado en GameRoom.
  * `id`/`name` identifican a la persona (y a su cuerpo original, que lleva su nombre).
  */
 export class Player extends Schema {
@@ -13,22 +13,28 @@ export class Player extends Schema {
   @type("number") score = 0; // acumulado entre rondas
   @type("number") lastPoints = 0; // puntos de la última ronda
   @type("boolean") connected = true;
-  @type("boolean") submitted = false; // ya respondió la pregunta / envió sus adivinanzas
+  @type("boolean") submitted = false; // ya respondió / votó / envió sus adivinanzas
   @type("boolean") skipVote = false; // votó por saltar la fase actual
+  @type("boolean") out = false; // su MENTE fue expulsada: es espectador
+  @type("boolean") bodyOut = false; // su CUERPO salió del juego
 }
 
-export type Mode = "classic" | "all";
+export type Mode = "classic" | "all" | "immutable" | "still";
 
 /** Configuración de la partida (la edita el host en el lobby). Un tiempo en 0 apaga esa fase. */
 export class Settings extends Schema {
   @type("string") mode: Mode = "classic";
-  @type("number") cycles = 1; // repeticiones de Pregunta → Hilo → Chat global → Chat privado
+  @type("number") cycles = 0; // 0 = automático según modo y jugadores
   @type("number") questionSeconds = 45;
   @type("number") threadSeconds = 30; // por cada respuesta
   @type("number") daySeconds = 120;
   @type("number") nightSeconds = 90;
-  @type("number") guessSeconds = 90;
+  @type("number") guessSeconds = 90; // votación final: ¿Quién es quién? / Juicio Final
   @type("number") chatsPerNight = 0; // 0 = automático según nº de jugadores
+  @type("boolean") earlyVote = false; // Desenmascare / Votación entre ciclos
+  @type("number") voteSeconds = 30;
+  @type("number") maxEjections = 1; // 0 = sin límite
+  @type("boolean") unmaskSame = false; // (Clásico) se puede desenmascarar a quien no cambió
 }
 
 /** Respuesta en El Hilo, estilo post de X. */
@@ -47,11 +53,14 @@ export class Post extends Schema {
   @type([Reply]) replies = new ArraySchema<Reply>();
 }
 
-export type Phase = "LOBBY" | "SWAP" | "QUESTION" | "THREAD" | "DAY" | "NIGHT" | "GUESS" | "RESULTS";
+export type Phase =
+  | "LOBBY" | "SWAP" | "QUESTION" | "THREAD" | "DAY" | "NIGHT"
+  | "UNMASK" | "VOTE" | "VERDICT" | "GUESS" | "FINAL_VOTE" | "RESULTS";
 
 export class GameState extends Schema {
   @type("string") phase: Phase = "LOBBY";
   @type("number") cycle = 0;
+  @type("number") totalCycles = 0; // ciclos efectivos de esta ronda (Auto ya resuelto)
   @type("number") round = 0;
   @type("number") timer = 0;
   @type("string") hostId = "";

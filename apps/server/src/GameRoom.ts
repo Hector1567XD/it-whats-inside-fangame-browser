@@ -1,11 +1,14 @@
 import { Room, Client, ServerError, type Deferred } from "@colyseus/core";
 import { GameState, Player, Post, Reply, type Mode, type Phase, type Settings } from "./GameState.js";
 import { QUESTIONS } from "./questions.js";
+import {
+  MODES, autoChats, autoCycles, isImmutableMode, minPlayersFor, resolveUnmask, resolvePlurality, skipNeeded, swapCount,
+  POINTS, type Verdict,
+} from "./rules.js";
 
 const num = (v: string | undefined, d: number) => (v && !isNaN(+v) ? +v : d);
-const SWAP_SECONDS = num(process.env.SWAP_SECONDS, 10); // animación de cambio de cuerpos al empezar
-const MIN_PLAYERS_ENV = process.env.MIN_PLAYERS ? num(process.env.MIN_PLAYERS, 5) : undefined; // override para pruebas
-const MIN_PLAYERS: Record<Mode, number> = { classic: 5, all: 4 };
+const SWAP_SECONDS = num(process.env.SWAP_SECONDS, 10); // animación de cambio de cuerpos
+const VERDICT_SECONDS = num(process.env.VERDICT_SECONDS, 8); // anuncio del resultado de una votación
 const MAX_PLAYERS = 12;
 const MAX_CHAT_LOG = 300;
 const MAX_REPLIES = 80;
@@ -32,48 +35,41 @@ function shuffle<T>(a: T[]): T[] {
   return r;
 }
 
-const randInt = (lo: number, hi: number) => lo + Math.floor(Math.random() * (hi - lo + 1));
-
 const clamp = (v: unknown, min: number, max: number, d: number) => {
   const n = Math.round(Number(v));
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : d;
 };
 
-/** Chats que cada jugador puede iniciar por noche en modo automático. */
-export const autoChats = (players: number) => Math.min(5, Math.max(2, Math.floor(players / 2)));
-
-/**
- * Cuántos cambian de cuerpo. Clásico: entre 2 y N-2 al azar (siempre quedan al menos 2 en su cuerpo),
- * nadie sabe cuántos. Todos cambian: todos.
- */
-export function swapCount(mode: Mode, n: number) {
-  if (n < 2) return 0;
-  if (mode === "all") return n;
-  return randInt(2, Math.max(2, n - 2));
-}
-
 export type RoundResult = {
   mindId: string;
   bodyId: string;
   swapped: boolean;
+  out: boolean; // lo desenmascararon en la ronda
   hits: number; // cuerpos cambiados que adivinó (+200 c/u)
   sameHits: number; // acertó que alguien NO cambió (+50 c/u)
-  guessedBy: number; // rivales que adivinaron qué mente había en su cuerpo
-  fooled: number; // (si no cambió) rivales que creyeron que sí cambió
-  bonus: "stealth" | "decoy" | null; // +150
-  points: number;
+  guessedBy: number;
+  fooled: number;
+  bonus: "stealth" | "decoy" | null;
+  early: number; // puntos ganados/perdidos en desenmascares
+  points: number; // total de la ronda
 };
-export type ResultsPayload = {
-  mode: Mode;
-  results: RoundResult[];
-  guesses: Record<string, Record<string, string>>; // mente -> { cuerpo: mente adivinada }
-};
+export type Ejection = { cycle: number; kind: "UNMASK" | "VOTE" | "FINAL_VOTE"; bodyId: string; mindId: string; wasImmutable: boolean };
+export type ResultsPayload =
+  | { family: "guess"; mode: Mode; results: RoundResult[]; guesses: Record<string, Record<string, string>>; ejections: Ejection[] }
+  | {
+      family: "immutable"; mode: Mode; immutableId: string; winner: "changers" | "immutable";
+      bodies: Record<string, string>; // mente -> cuerpo final
+      history: Record<string, string[]>; // mente -> cuerpos por los que pasó
+      ejections: Ejection[]; points: Record<string, number>;
+    };
 
 type ChatMsg = { fromBody: string; real: boolean; tag: string; text: string; ts: number };
 type DmLog = { a: string; b: string; fromBody: string; text: string; ts: number }; // a = mente que escribe, b = destino
 
-const PLAYING: Phase[] = ["SWAP", "QUESTION", "THREAD", "DAY", "NIGHT", "GUESS"];
-const SKIPPABLE: Phase[] = ["QUESTION", "THREAD", "DAY", "NIGHT", "GUESS"];
+const PLAYING: Phase[] = ["SWAP", "QUESTION", "THREAD", "DAY", "NIGHT", "UNMASK", "VOTE", "VERDICT", "GUESS", "FINAL_VOTE"];
+const SKIPPABLE: Phase[] = ["QUESTION", "THREAD", "DAY", "NIGHT", "UNMASK", "VOTE", "GUESS", "FINAL_VOTE"];
+const SUBMIT_PHASES: Phase[] = ["QUESTION", "UNMASK", "VOTE", "GUESS", "FINAL_VOTE"];
+const REACTIONS = ["😂", "😭", "😊", "❤️", "😡", "👏", "🤔", "👀", "🤡"];
 
 export class GameRoom extends Room<GameState> {
   maxClients = MAX_PLAYERS * 2; // holgura para que alguien retome su lugar aunque la sala esté llena
@@ -86,8 +82,11 @@ export class GameRoom extends Room<GameState> {
   private pendingReconnect = new Map<string, Deferred<Client>>();
 
   // --- estado PRIVADO (nunca se sincroniza) ---
-  private bodyOf = new Map<string, string>(); // mindId -> bodyId (fijo durante toda la ronda)
+  private bodyOf = new Map<string, string>(); // mindId -> bodyId
   private lastBodyOf = new Map<string, string>(); // ronda anterior, para no repetir cuerpo
+  private history = new Map<string, string[]>(); // mindId -> cuerpos por los que pasó esta ronda
+  private immutableId = ""; // modos Inmutables: quién nunca cambia
+  private lastImmutable = "";
   private dmPairs = new Set<string>(); // conversaciones abiertas esta noche ("a|b" ordenado)
   private initiated = new Map<string, number>(); // mindId -> chats que inició esta noche
   private dmLog: DmLog[] = [];
@@ -97,11 +96,19 @@ export class GameRoom extends Room<GameState> {
   private usedQuestions = new Set<string>();
   private seq = 0;
   private guesses = new Map<string, Record<string, string>>(); // mindId -> { bodyId: mindId }
+  private accusations = new Map<string, { body: string; mind: string } | null>(); // Desenmascare (null = omitir)
+  private votes = new Map<string, string | null>(); // Votación / Juicio Final (null = omitir)
+  private roundPts = new Map<string, number>(); // puntos acumulados en la ronda (votaciones + final)
+  private earlyPts = new Map<string, number>(); // solo los de votaciones entre ciclos
+  private ejections: Ejection[] = [];
+  private verdict: Verdict | null = null;
+  private winner: "changers" | "immutable" | null = null;
+  private lastReact = new Map<string, number>();
   private lastResults: ResultsPayload | null = null;
 
   onCreate(opts: { mode?: string }) {
     this.roomId = newCode();
-    this.setMode(opts?.mode === "all" ? "all" : "classic");
+    this.setMode(opts?.mode && opts.mode in MODES ? (opts.mode as Mode) : "classic");
     this.state.maxPlayers = MAX_PLAYERS;
     this.clock.setInterval(() => this.tick(), 1000);
     this.syncMeta();
@@ -112,11 +119,12 @@ export class GameRoom extends Room<GameState> {
       const t = clean(text);
       const ph = this.state.phase;
       if (!t || !["LOBBY", "DAY", "RESULTS"].includes(ph)) return;
+      const me = this.pid(client);
+      if (ph === "DAY" && !this.isActive(me)) return; // espectadores solo leen
       const real = ph !== "DAY"; // fuera del día se habla con la identidad real
-      const fromBody = real ? this.pid(client) : this.bodyOf.get(this.pid(client)) ?? this.pid(client);
-      const tag = ph === "DAY"
-        ? `☀️ Chat global${this.state.settings.cycles > 1 ? ` · ciclo ${this.state.cycle}` : ""}`
-        : ph === "RESULTS" ? "🏆 Resultados" : "🛋️ Sala de espera";
+      const fromBody = real ? me : this.bodyOf.get(me) ?? me;
+      const cyc = this.state.totalCycles > 1 ? ` · ciclo ${this.state.cycle}` : "";
+      const tag = ph === "DAY" ? `☀️ Chat global${cyc}` : ph === "RESULTS" ? "🏆 Resultados" : "🛋️ Sala de espera";
       const msg: ChatMsg = { fromBody, real, tag, text: t, ts: Date.now() };
       this.chatLog.push(msg);
       if (this.chatLog.length > MAX_CHAT_LOG) this.chatLog.shift();
@@ -125,32 +133,31 @@ export class GameRoom extends Room<GameState> {
 
     this.onMessage("answer", (client, { text }: { text: string }) => {
       const t = clean(text).slice(0, 200);
-      if (!t || this.state.phase !== "QUESTION") return;
       const me = this.pid(client);
+      if (!t || this.state.phase !== "QUESTION" || !this.isActive(me)) return;
       this.answers.set(me, t);
-      const p = this.state.players.get(me);
-      if (p) p.submitted = true;
-      if (this.allConnectedSubmitted()) this.advance();
+      this.markSubmitted(me);
     });
 
     this.onMessage("reply", (client, { text }: { text: string }) => {
       const t = clean(text).slice(0, 200);
       const post = this.state.posts[this.state.thread];
-      if (!t || this.state.phase !== "THREAD" || !post || post.replies.length >= MAX_REPLIES) return;
+      const me = this.pid(client);
+      if (!t || this.state.phase !== "THREAD" || !post || post.replies.length >= MAX_REPLIES || !this.isActive(me)) return;
       const r = new Reply();
       r.id = `r${++this.seq}`;
-      r.body = this.bodyOf.get(this.pid(client)) ?? this.pid(client);
+      r.body = this.bodyOf.get(me) ?? me;
       r.text = t;
       post.replies.push(r);
     });
 
     this.onMessage("like", (client, { id }: { id: string }) => {
-      if (!["THREAD", "DAY"].includes(this.state.phase) || typeof id !== "string") return;
+      const me = this.pid(client);
+      if (!["THREAD", "DAY"].includes(this.state.phase) || typeof id !== "string" || !this.isActive(me)) return;
       const target = this.findLikeable(id);
       if (!target) return;
       let set = this.likedBy.get(id);
       if (!set) this.likedBy.set(id, (set = new Set()));
-      const me = this.pid(client);
       set.has(me) ? set.delete(me) : set.add(me);
       target.likes = set.size;
     });
@@ -159,9 +166,10 @@ export class GameRoom extends Room<GameState> {
       const t = clean(text);
       if (!t || this.state.phase !== "NIGHT") return;
       const me = this.pid(client);
+      if (!this.isActive(me)) return;
       const myBody = this.bodyOf.get(me)!;
       const target = this.mindInBody(toBody);
-      if (!target || target === me) return;
+      if (!target || target === me || !this.isActive(target)) return;
 
       const key = [me, target].sort().join("|");
       if (!this.dmPairs.has(key)) {
@@ -179,18 +187,63 @@ export class GameRoom extends Room<GameState> {
       this.clientOf(target)?.send("dm", { fromBody: myBody, text: t, ts, withBody: myBody });
     });
 
-    this.onMessage("settings", (client, patch: Partial<Record<keyof Settings, number | string>>) => {
+    // 🎭 El Desenmascare: una acusación "en el cuerpo X está la mente Y", o omitir.
+    this.onMessage("accuse", (client, msg: { body?: string; mind?: string; skip?: boolean }) => {
+      const me = this.pid(client);
+      if (this.state.phase !== "UNMASK" || !this.isActive(me)) return;
+      if (msg?.skip) {
+        this.accusations.set(me, null);
+        return this.markSubmitted(me);
+      }
+      const { body, mind } = msg ?? {};
+      if (typeof body !== "string" || typeof mind !== "string") return;
+      if (!this.isBodyActive(body) || body === this.bodyOf.get(me) || !this.isActive(mind) || mind === me) return;
+      if (body === mind && !this.canUnmaskSame()) return;
+      this.accusations.set(me, { body, mind });
+      this.markSubmitted(me);
+    });
+
+    // 🗳️ La Votación / ⚖️ Juicio Final: un cuerpo, o omitir.
+    this.onMessage("vote", (client, msg: { body?: string; skip?: boolean }) => {
+      const me = this.pid(client);
+      if (!["VOTE", "FINAL_VOTE"].includes(this.state.phase) || !this.isActive(me)) return;
+      if (msg?.skip) {
+        this.votes.set(me, null);
+        return this.markSubmitted(me);
+      }
+      const body = msg?.body;
+      if (typeof body !== "string" || !this.isBodyActive(body) || body === this.bodyOf.get(me)) return;
+      this.votes.set(me, body);
+      this.markSubmitted(me);
+    });
+
+    // Reacciones en vivo sobre tarjetas (no cuentan como voto).
+    this.onMessage("react", (client, { target, emoji }: { target: string; emoji: string }) => {
+      const me = this.pid(client);
+      if (!["UNMASK", "VOTE", "FINAL_VOTE", "VERDICT"].includes(this.state.phase) || !this.isActive(me)) return;
+      if (!REACTIONS.includes(emoji) || typeof target !== "string" || target.length > 40) return;
+      const now = Date.now();
+      if (now - (this.lastReact.get(me) ?? 0) < 150) return;
+      this.lastReact.set(me, now);
+      this.broadcast("reaction", { target, emoji });
+    });
+
+    this.onMessage("settings", (client, patch: Partial<Record<keyof Settings, number | string | boolean>>) => {
       if (!this.isHost(client) || this.state.phase !== "LOBBY" || !patch || typeof patch !== "object") return;
       const s = this.state.settings;
-      if (patch.mode === "classic" || patch.mode === "all") this.setMode(patch.mode);
-      if ("cycles" in patch) s.cycles = clamp(patch.cycles, 1, 5, s.cycles);
-      // 0 apaga la fase (menos la adivinanza)
+      if (typeof patch.mode === "string" && patch.mode in MODES) this.setMode(patch.mode as Mode);
+      if ("cycles" in patch) s.cycles = clamp(patch.cycles, 0, 5, s.cycles);
+      // 0 apaga la fase (menos la votación final)
       if ("questionSeconds" in patch) s.questionSeconds = clamp(patch.questionSeconds, 0, 180, s.questionSeconds);
       if ("threadSeconds" in patch) s.threadSeconds = clamp(patch.threadSeconds, 0, 120, s.threadSeconds);
       if ("daySeconds" in patch) s.daySeconds = clamp(patch.daySeconds, 0, 600, s.daySeconds);
       if ("nightSeconds" in patch) s.nightSeconds = clamp(patch.nightSeconds, 0, 600, s.nightSeconds);
       if ("guessSeconds" in patch) s.guessSeconds = clamp(patch.guessSeconds, 20, 300, s.guessSeconds);
+      if ("voteSeconds" in patch) s.voteSeconds = clamp(patch.voteSeconds, 15, 180, s.voteSeconds);
       if ("chatsPerNight" in patch) s.chatsPerNight = clamp(patch.chatsPerNight, 0, 7, s.chatsPerNight);
+      if ("maxEjections" in patch) s.maxEjections = clamp(patch.maxEjections, 0, MAX_PLAYERS, s.maxEjections);
+      if (typeof patch.earlyVote === "boolean") s.earlyVote = patch.earlyVote;
+      if (typeof patch.unmaskSame === "boolean") s.unmaskSame = patch.unmaskSame && s.mode === "classic";
     });
 
     this.onMessage("start", (client) => {
@@ -212,17 +265,16 @@ export class GameRoom extends Room<GameState> {
     this.onMessage("voteSkip", (client) => {
       if (!SKIPPABLE.includes(this.state.phase)) return;
       const p = this.state.players.get(this.pid(client));
-      if (!p) return;
+      if (!p || p.out) return;
       p.skipVote = !p.skipVote;
       this.checkSkipVotes();
     });
 
     this.onMessage("guesses", (client, { guesses }: { guesses: Record<string, string> }) => {
-      if (this.state.phase !== "GUESS") return;
-      this.guesses.set(this.pid(client), typeof guesses === "object" && guesses ? guesses : {});
-      const p = this.state.players.get(this.pid(client));
-      if (p) p.submitted = true;
-      if (this.allConnectedSubmitted()) this.advance();
+      const me = this.pid(client);
+      if (this.state.phase !== "GUESS" || !this.isActive(me)) return;
+      this.guesses.set(me, typeof guesses === "object" && guesses ? guesses : {});
+      this.markSubmitted(me);
     });
 
     this.onMessage("next", (client) => {
@@ -303,7 +355,7 @@ export class GameRoom extends Room<GameState> {
     p.skipVote = false;
     this.reassignHost();
     this.checkSkipVotes();
-    this.checkGuessesDone();
+    this.checkAllSubmitted();
     this.syncMeta();
     if (consented) return;
     const d = this.allowReconnection(client, 120);
@@ -328,19 +380,35 @@ export class GameRoom extends Room<GameState> {
   // ---------------- ciclo de juego ----------------
 
   private setMode(mode: Mode) {
-    this.state.settings.mode = mode;
-    this.state.minPlayers = MIN_PLAYERS_ENV ?? MIN_PLAYERS[mode];
+    const s = this.state.settings;
+    s.mode = mode;
+    this.state.minPlayers = minPlayersFor(mode);
+    // valores por defecto que dependen del modo
+    s.voteSeconds = isImmutableMode(mode) ? 45 : 30;
+    s.maxEjections = isImmutableMode(mode) ? 0 : 1;
+    if (mode !== "classic") s.unmaskSame = false;
   }
 
   private startRound() {
+    const s = this.state.settings;
     this.state.round++;
     this.state.cycle = 0;
+    this.state.totalCycles = s.cycles > 0 ? s.cycles : autoCycles(s.mode, this.state.players.size, s.earlyVote);
     this.guesses.clear();
     this.chatLog = [];
     this.lastResults = null;
+    this.roundPts.clear();
+    this.earlyPts.clear();
+    this.ejections = [];
+    this.verdict = null;
+    this.winner = null;
     this.state.posts.clear();
     this.state.question = "";
-    for (const p of this.state.players.values()) p.submitted = false;
+    for (const p of this.state.players.values()) {
+      p.submitted = false;
+      p.out = false;
+      p.bodyOut = false;
+    }
     this.assignBodies();
     this.setPhase("SWAP", SWAP_SECONDS);
     this.clients.forEach((c) => this.sendIdentity(c));
@@ -370,7 +438,8 @@ export class GameRoom extends Room<GameState> {
   }
 
   /**
-   * SWAP → [La Pregunta → El Hilo (un post a la vez) → Chat global → Chat privado] × ciclos → GUESS → RESULTS.
+   * 🧳 → [❓ → 🐦 → ☀️ → 🌙 → (votación entre ciclos) → (re-cambio en El Inmutable)] × ciclos → votación final → 🏆
+   * La votación entre ciclos no ocurre en el último ciclo: a ese le sigue la votación final.
    */
   private advance() {
     const ph = this.state.phase;
@@ -379,27 +448,34 @@ export class GameRoom extends Room<GameState> {
       this.setPhase("THREAD", this.state.settings.threadSeconds);
       return;
     }
-    if (ph === "GUESS") {
-      this.computeResults();
-      this.setPhase("RESULTS", 0);
-      return;
+    switch (ph) {
+      case "SWAP":
+        if (this.state.cycle === 0) this.state.cycle = 1;
+        return this.goTo(this.cyclePhases(), 0);
+      case "UNMASK":
+        return this.showVerdict(this.resolveUnmaskPhase());
+      case "VOTE":
+        return this.showVerdict(this.resolveVotePhase(false));
+      case "FINAL_VOTE":
+        return this.showVerdict(this.resolveVotePhase(true));
+      case "VERDICT":
+        if (this.winner || this.verdict?.kind === "FINAL_VOTE") return this.finishImmutable();
+        return this.nextCycle();
+      case "GUESS":
+        this.computeResults();
+        return this.setPhase("RESULTS", 0);
+      case "LOBBY":
+      case "RESULTS":
+        return;
+      default: {
+        const list = this.cyclePhases();
+        return this.goTo(list, list.indexOf(ph) + 1);
+      }
     }
-    if (!this.isPlaying()) return;
-    const list = this.cyclePhases();
-    if (ph === "SWAP") {
-      this.state.cycle = 1;
-      return this.goTo(list, 0);
-    }
-    this.goTo(list, list.indexOf(ph) + 1);
   }
 
   private goTo(list: Phase[], i: number): void {
-    if (i >= list.length) {
-      if (list.length > 0 && this.state.cycle < this.state.settings.cycles) {
-        this.state.cycle++;
-        i = 0;
-      } else return this.enterGuess();
-    }
+    if (i >= list.length) return this.endOfCycle();
     const s = this.state.settings;
     switch (list[i]) {
       case "QUESTION": {
@@ -407,11 +483,11 @@ export class GameRoom extends Room<GameState> {
         this.likedBy.clear();
         this.state.posts.clear();
         this.state.question = this.pickQuestion();
-        for (const p of this.state.players.values()) p.submitted = false;
+        this.resetSubmitted();
         return this.setPhase("QUESTION", s.questionSeconds);
       }
       case "THREAD": {
-        const answered = shuffle([...this.answers.entries()]);
+        const answered = shuffle([...this.answers.entries()].filter(([m]) => this.isActive(m)));
         if (answered.length === 0) return this.goTo(list, i + 1); // nadie respondió: no hay hilo
         for (const [mind, text] of answered) {
           const post = new Post();
@@ -430,10 +506,118 @@ export class GameRoom extends Room<GameState> {
     }
   }
 
-  private enterGuess() {
-    for (const p of this.state.players.values()) p.submitted = false;
-    this.setPhase("GUESS", this.state.settings.guessSeconds);
+  private endOfCycle() {
+    const s = this.state.settings;
+    const last = this.state.cycle >= this.state.totalCycles;
+    if (last) return this.enterFinal();
+    if (s.earlyVote && this.ejectionsLeft() && this.activeIds().length >= 3) {
+      this.resetSubmitted();
+      this.accusations.clear();
+      this.votes.clear();
+      return this.setPhase(isImmutableMode(s.mode) ? "VOTE" : "UNMASK", s.voteSeconds);
+    }
+    this.nextCycle();
   }
+
+  private nextCycle() {
+    this.state.cycle++;
+    if (this.state.settings.mode === "immutable") {
+      this.reswap();
+      this.setPhase("SWAP", SWAP_SECONDS);
+      this.clients.forEach((c) => this.sendIdentity(c));
+      return;
+    }
+    this.goTo(this.cyclePhases(), 0);
+  }
+
+  private enterFinal() {
+    this.resetSubmitted();
+    const s = this.state.settings;
+    if (isImmutableMode(s.mode)) {
+      this.votes.clear();
+      return this.setPhase("FINAL_VOTE", s.guessSeconds);
+    }
+    this.setPhase("GUESS", s.guessSeconds);
+  }
+
+  private ejectionsLeft() {
+    const max = this.state.settings.maxEjections;
+    return max === 0 || this.ejections.length < max;
+  }
+
+  private showVerdict(v: Verdict) {
+    this.verdict = v;
+    this.broadcast("verdict", v);
+    this.setPhase("VERDICT", VERDICT_SECONDS);
+  }
+
+  // ---------------- votaciones ----------------
+
+  private resolveUnmaskPhase(): Verdict {
+    const truth: Record<string, string> = {};
+    for (const [m, b] of this.bodyOf) if (this.isActive(m)) truth[b] = m;
+    const r = resolveUnmask({
+      accusations: this.accusations, truth, activeCount: this.activeIds().length, allowSame: this.canUnmaskSame(),
+    });
+    if (!r) return { kind: "UNMASK", outcome: "none" };
+    const same = r.bodyId === r.mindId;
+    this.eject("UNMASK", r.bodyId, r.mindId);
+    this.addPts(r.mindId, same ? POINTS.unmaskedSame : POINTS.unmasked, true);
+    for (const a of r.correct) this.addPts(a, same ? POINTS.unmaskSame : POINTS.unmask, true);
+    return { kind: "UNMASK", outcome: "ejected", bodyId: r.bodyId, mindId: r.mindId, wasSame: same };
+  }
+
+  private resolveVotePhase(final: boolean): Verdict {
+    const kind = final ? "FINAL_VOTE" : "VOTE";
+    const { top, reason, tally } = resolvePlurality(this.votes);
+    if (!top) {
+      if (final) this.winImmutable();
+      else this.addPts(this.immutableId, POINTS.immutableSurvives, true);
+      return { kind, tally, outcome: "none", reason, winner: this.winner ?? undefined };
+    }
+    const mind = this.mindInBody(top)!;
+    const voters = [...this.votes.entries()].filter(([, b]) => b === top).map(([v]) => v);
+    this.eject(kind, top, mind);
+    if (mind === this.immutableId) {
+      this.winner = "changers";
+      for (const p of this.state.players.values()) if (p.id !== this.immutableId) this.addPts(p.id, POINTS.changersWin, false);
+      for (const v of voters) this.addPts(v, POINTS.votedImmutable, false);
+      return { kind, tally, outcome: "ejected", bodyId: top, mindId: mind, wasImmutable: true, winner: "changers" };
+    }
+    // Penaliza a los cambiantes que votaron mal; para el Inmutable expulsar cambiantes es el objetivo.
+    for (const v of voters) if (v !== this.immutableId) this.addPts(v, POINTS.votedChanger, !final);
+    this.addPts(this.immutableId, POINTS.immutableEjects, !final);
+    if (!final) this.addPts(this.immutableId, POINTS.immutableSurvives, true);
+    if (final || this.activeIds().length <= 2) this.winImmutable();
+    return { kind, tally, outcome: "ejected", bodyId: top, mindId: mind, wasImmutable: false, winner: this.winner ?? undefined };
+  }
+
+  private winImmutable() {
+    if (this.winner) return;
+    this.winner = "immutable";
+    this.addPts(this.immutableId, POINTS.immutableWins, false);
+  }
+
+  private eject(kind: Ejection["kind"], bodyId: string, mindId: string) {
+    const mind = this.state.players.get(mindId);
+    const body = this.state.players.get(bodyId);
+    if (mind) {
+      mind.out = true;
+      mind.skipVote = false;
+    }
+    if (body) body.bodyOut = true;
+    this.ejections.push({ cycle: this.state.cycle, kind, bodyId, mindId, wasImmutable: mindId === this.immutableId });
+  }
+
+  private addPts(pid: string, pts: number, early: boolean) {
+    if (!pid) return;
+    this.roundPts.set(pid, (this.roundPts.get(pid) ?? 0) + pts);
+    if (early) this.earlyPts.set(pid, (this.earlyPts.get(pid) ?? 0) + pts);
+    const p = this.state.players.get(pid);
+    if (p) p.score += pts;
+  }
+
+  // ---------------- helpers de fase ----------------
 
   private pickQuestion() {
     let pool = QUESTIONS.filter((q) => !this.usedQuestions.has(q));
@@ -460,7 +644,7 @@ export class GameRoom extends Room<GameState> {
     this.initiated.clear();
     this.dmLog = [];
     const s = this.state.settings;
-    this.state.chatLimit = s.chatsPerNight > 0 ? s.chatsPerNight : autoChats(this.state.players.size);
+    this.state.chatLimit = s.chatsPerNight > 0 ? s.chatsPerNight : autoChats(this.activeIds().length);
     this.setPhase("NIGHT", seconds);
   }
 
@@ -472,57 +656,117 @@ export class GameRoom extends Room<GameState> {
     if (changed) this.syncMeta();
   }
 
+  private resetSubmitted() {
+    for (const p of this.state.players.values()) p.submitted = false;
+  }
+
+  private markSubmitted(pid: string) {
+    const p = this.state.players.get(pid);
+    if (p) p.submitted = true;
+    this.checkAllSubmitted();
+  }
+
   private checkSkipVotes() {
     if (!SKIPPABLE.includes(this.state.phase)) return;
-    const connected = [...this.state.players.values()].filter((p) => p.connected);
-    const votes = connected.filter((p) => p.skipVote).length;
-    if (votes > 0 && votes >= skipNeeded(connected.length)) {
+    const voters = [...this.state.players.values()].filter((p) => p.connected && !p.out);
+    const votes = voters.filter((p) => p.skipVote).length;
+    if (votes > 0 && votes >= skipNeeded(voters.length)) {
       this.broadcast("skipped", { by: "vote" });
       this.advance();
     }
   }
 
-  private allConnectedSubmitted() {
-    return ![...this.state.players.values()].some((p) => p.connected && !p.submitted);
+  /** Si todos los activos conectados ya respondieron / votaron, se avanza sin esperar el reloj. */
+  private checkAllSubmitted() {
+    if (!SUBMIT_PHASES.includes(this.state.phase)) return;
+    const pending = [...this.state.players.values()].some((p) => p.connected && !p.out && !p.submitted);
+    if (!pending) this.advance();
   }
 
-  private checkGuessesDone() {
-    if (["QUESTION", "GUESS"].includes(this.state.phase) && this.allConnectedSubmitted()) this.advance();
+  private isActive(pid: string) {
+    const p = this.state.players.get(pid);
+    return !!p && !p.out;
+  }
+
+  private isBodyActive(bodyId: string) {
+    const p = this.state.players.get(bodyId);
+    return !!p && !p.bodyOut;
+  }
+
+  private activeIds() {
+    return [...this.state.players.values()].filter((p) => !p.out).map((p) => p.id);
+  }
+
+  private canUnmaskSame() {
+    return this.state.settings.mode === "classic" && this.state.settings.unmaskSame;
+  }
+
+  // ---------------- cuerpos ----------------
+
+  /** Reparte `minds` sobre `bodies`: nadie queda en `avoid(m)`; si se puede, tampoco en `soft(m)`. */
+  private derange(minds: string[], bodies: string[], avoid: (m: string) => string | undefined, soft: (m: string) => string | undefined) {
+    const bad = (next: string[], strict: boolean) =>
+      next.some((b, i) => b === avoid(minds[i]) || (strict && b === soft(minds[i])));
+    let next = shuffle(bodies);
+    for (let tries = 0; tries < 5000 && bad(next, tries < 2000); tries++) next = shuffle(bodies);
+    minds.forEach((m, i) => this.bodyOf.set(m, next[i]));
   }
 
   /**
-   * Un único cambio por ronda, al empezar. Los que cambian forman un derangement entre ellos
-   * (ninguno queda en su cuerpo) y, si se puede, nadie repite el cuerpo de la ronda anterior.
+   * El cambio al empezar la ronda.
+   * Clásico: cambian entre 2 y N-2. Todos: todos. Inmutables: todos menos el Inmutable.
    */
   private assignBodies() {
     const all = shuffle([...this.state.players.keys()]);
+    const mode = this.state.settings.mode;
     this.bodyOf.clear();
+    this.history.clear();
     all.forEach((m) => this.bodyOf.set(m, m));
-    const k = swapCount(this.state.settings.mode, all.length);
-    const minds = all.slice(0, k);
-    if (minds.length >= 2) {
-      const bad = (next: string[], strict: boolean) =>
-        next.some((b, i) => b === minds[i] || (strict && b === this.lastBodyOf.get(minds[i])));
-      let next = shuffle(minds);
-      for (let tries = 0; tries < 5000 && bad(next, tries < 2000); tries++) next = shuffle(minds);
-      minds.forEach((m, i) => this.bodyOf.set(m, next[i]));
+    this.immutableId = "";
+
+    let movers: string[];
+    if (isImmutableMode(mode)) {
+      const pool = all.length > 1 ? all.filter((m) => m !== this.lastImmutable) : all;
+      this.immutableId = pool[0] ?? "";
+      this.lastImmutable = this.immutableId;
+      movers = all.filter((m) => m !== this.immutableId);
+    } else {
+      movers = all.slice(0, swapCount(mode, all.length));
     }
+    if (movers.length >= 2) this.derange(movers, movers, (m) => m, (m) => this.lastBodyOf.get(m));
     this.lastBodyOf = new Map(this.bodyOf);
+    for (const m of all) this.history.set(m, [this.bodyOf.get(m)!]);
   }
 
+  /** El Inmutable: entre ciclos los cambiantes activos vuelven a cambiar entre los cuerpos que siguen en juego. */
+  private reswap() {
+    const movers = shuffle(this.activeIds().filter((m) => m !== this.immutableId));
+    const bodies = movers.map((m) => this.bodyOf.get(m)!);
+    if (movers.length >= 2) {
+      const current = new Map(movers.map((m) => [m, this.bodyOf.get(m)!]));
+      this.derange(movers, bodies, (m) => current.get(m), () => undefined);
+    }
+    for (const m of movers) this.history.get(m)?.push(this.bodyOf.get(m)!);
+  }
+
+  // ---------------- resultados ----------------
+
+  /** ¿Quién es quién? (Clásico / Todos): se puntúa sobre los cuerpos y mentes que siguen en juego. */
   private computeResults() {
     const minds = [...this.bodyOf.keys()];
-    const rivals = minds.length - 1;
+    const active = minds.filter((m) => this.isActive(m));
+    const rivals = active.length - 1;
     const classic = this.state.settings.mode === "classic";
 
     // Normalizamos: en clásico, un cuerpo sin marcar = "no cambió" (su dueño).
     const norm: Record<string, Record<string, string>> = {};
-    for (const m of minds) {
+    for (const m of active) {
       const raw = this.guesses.get(m) ?? {};
       const g: Record<string, string> = {};
-      for (const b of minds) {
+      for (const o of active) {
+        const b = this.bodyOf.get(o)!;
         if (b === this.bodyOf.get(m)) continue;
-        const v = typeof raw[b] === "string" && this.bodyOf.has(raw[b]) ? raw[b] : "";
+        const v = typeof raw[b] === "string" && this.isActive(raw[b]) ? raw[b] : "";
         g[b] = v || (classic ? b : "");
       }
       norm[m] = g;
@@ -531,29 +775,47 @@ export class GameRoom extends Room<GameState> {
     const results: RoundResult[] = minds.map((m) => {
       const myBody = this.bodyOf.get(m)!;
       const swapped = myBody !== m;
+      const early = this.earlyPts.get(m) ?? 0;
+      if (!this.isActive(m)) {
+        return { mindId: m, bodyId: myBody, swapped, out: true, hits: 0, sameHits: 0, guessedBy: 0, fooled: 0, bonus: null, early, points: early };
+      }
       let hits = 0;
       let sameHits = 0;
-      for (const o of minds) {
+      for (const o of active) {
         if (o === m) continue;
         const b = this.bodyOf.get(o)!;
         if (norm[m][b] === o) b === o ? sameHits++ : hits++;
       }
-      const others = minds.filter((o) => o !== m);
+      const others = active.filter((o) => o !== m);
       const guessedBy = others.filter((o) => norm[o][myBody] === m).length;
       const fooled = swapped ? 0 : others.filter((o) => norm[o][myBody] && norm[o][myBody] !== m).length;
       const bonus = swapped
         ? (guessedBy < rivals * 0.5 ? "stealth" : null)
         : (rivals > 0 && fooled >= rivals * 0.5 ? "decoy" : null);
-      const points = hits * 200 + sameHits * 50 + (bonus ? 150 : 0);
-      const p = this.state.players.get(m);
-      if (p) {
-        p.score += points;
-        p.lastPoints = points;
-      }
-      return { mindId: m, bodyId: myBody, swapped, hits, sameHits, guessedBy, fooled, bonus, points };
+      const final = hits * POINTS.guessSwap + sameHits * POINTS.guessSame + (bonus ? POINTS.bonus : 0);
+      this.addPts(m, final, false);
+      return { mindId: m, bodyId: myBody, swapped, out: false, hits, sameHits, guessedBy, fooled, bonus, early, points: early + final };
     });
-    this.lastResults = { mode: this.state.settings.mode, results, guesses: norm };
+    for (const p of this.state.players.values()) p.lastPoints = this.roundPts.get(p.id) ?? 0;
+    this.lastResults = { family: "guess", mode: this.state.settings.mode, results, guesses: norm, ejections: this.ejections };
     this.broadcast("results", this.lastResults);
+  }
+
+  private finishImmutable() {
+    if (!this.winner) this.winImmutable();
+    for (const p of this.state.players.values()) p.lastPoints = this.roundPts.get(p.id) ?? 0;
+    this.lastResults = {
+      family: "immutable",
+      mode: this.state.settings.mode,
+      immutableId: this.immutableId,
+      winner: this.winner!,
+      bodies: Object.fromEntries(this.bodyOf),
+      history: Object.fromEntries(this.history),
+      ejections: this.ejections,
+      points: Object.fromEntries([...this.state.players.keys()].map((id) => [id, this.roundPts.get(id) ?? 0])),
+    };
+    this.broadcast("results", this.lastResults);
+    this.setPhase("RESULTS", 0);
   }
 
   private backToLobby() {
@@ -562,13 +824,17 @@ export class GameRoom extends Room<GameState> {
         this.state.players.delete(p.id);
         this.pendingReconnect.get(p.id)?.reject(new Error("removed"));
         this.pendingReconnect.delete(p.id);
+      } else {
+        p.submitted = false;
+        p.out = false;
+        p.bodyOut = false;
       }
-      else p.submitted = false;
     }
     this.bodyOf.clear();
     this.guesses.clear();
     this.dmLog = [];
     this.lastResults = null;
+    this.verdict = null;
     this.state.cycle = 0;
     this.state.posts.clear();
     this.state.question = "";
@@ -582,16 +848,21 @@ export class GameRoom extends Room<GameState> {
   /** Todo lo privado que un cliente necesita (también sirve para reconectar). */
   private sendIdentity(client: Client) {
     const id = this.pid(client);
-    client.send("identity", { mindId: id, bodyId: this.bodyOf.get(id) ?? id });
+    const ph = this.state.phase;
+    const role = isImmutableMode(this.state.settings.mode) && ph !== "LOBBY"
+      ? (id === this.immutableId ? "immutable" : "changer")
+      : null;
+    client.send("identity", { mindId: id, bodyId: this.bodyOf.get(id) ?? id, role });
     client.send("chatHistory", this.chatLog);
-    if (this.state.phase === "NIGHT") {
+    if (ph === "NIGHT") {
       client.send("quota", { used: this.initiated.get(id) ?? 0 });
       const mine = this.dmLog
         .filter((d) => d.a === id || d.b === id)
         .map((d) => ({ fromBody: d.fromBody, text: d.text, ts: d.ts, withBody: this.bodyOf.get(d.a === id ? d.b : d.a)! }));
       client.send("dmHistory", mine);
     }
-    if (this.state.phase === "RESULTS" && this.lastResults) client.send("results", this.lastResults);
+    if (ph === "VERDICT" && this.verdict) client.send("verdict", this.verdict);
+    if (ph === "RESULTS" && this.lastResults) client.send("results", this.lastResults);
   }
 
   private mindInBody(bodyId: string) {
@@ -638,9 +909,6 @@ export class GameRoom extends Room<GameState> {
     client.send("error", { message });
   }
 }
-
-/** Mayoría simple de los conectados. */
-export const skipNeeded = (connected: number) => Math.floor(connected / 2) + 1;
 
 function validAvatar(a: unknown) {
   if (typeof a !== "string") return undefined;

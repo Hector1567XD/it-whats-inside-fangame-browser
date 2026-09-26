@@ -33,22 +33,27 @@ export async function roomInfo(code: string) {
 }
 
 // ---- tipos que espejan el server ----
-export type Phase = "LOBBY" | "SWAP" | "QUESTION" | "THREAD" | "DAY" | "NIGHT" | "GUESS" | "RESULTS";
-export type Mode = "classic" | "all";
+export type Phase =
+  | "LOBBY" | "SWAP" | "QUESTION" | "THREAD" | "DAY" | "NIGHT"
+  | "UNMASK" | "VOTE" | "VERDICT" | "GUESS" | "FINAL_VOTE" | "RESULTS";
+export type Mode = "classic" | "all" | "immutable" | "still";
+export type Role = "immutable" | "changer" | null;
 export type PlayerView = {
   id: string; name: string; color: string; avatar: string; score: number; lastPoints: number;
-  connected: boolean; submitted: boolean; skipVote: boolean;
+  connected: boolean; submitted: boolean; skipVote: boolean; out: boolean; bodyOut: boolean;
 };
 export type Settings = {
   mode: Mode; cycles: number;
   questionSeconds: number; threadSeconds: number; daySeconds: number; nightSeconds: number; guessSeconds: number;
   chatsPerNight: number; // 0 = auto
+  earlyVote: boolean; voteSeconds: number; maxEjections: number; unmaskSame: boolean;
 };
 export type ReplyView = { id: string; body: string; text: string; likes: number };
 export type PostView = ReplyView & { replies: ReplyView[] };
 export type StateView = {
   phase: Phase;
   cycle: number;
+  totalCycles: number;
   round: number;
   timer: number;
   hostId: string;
@@ -67,20 +72,48 @@ export type RoundResult = {
   mindId: string;
   bodyId: string;
   swapped: boolean;
+  out: boolean;
   hits: number;
   sameHits: number;
   guessedBy: number;
   fooled: number;
   bonus: "stealth" | "decoy" | null;
+  early: number;
   points: number;
 };
-export type ResultsPayload = { mode: Mode; results: RoundResult[]; guesses: Record<string, Record<string, string>> };
-
-export const MODES: Record<Mode, { icon: string; label: string; desc: string }> = {
-  classic: { icon: "🎲", label: "Clásico", desc: "Cambian algunos (mín. 2, siempre quedan 2 en su cuerpo). Nadie sabe cuántos." },
-  all: { icon: "🔀", label: "Todos cambian", desc: "Todas las mentes cambian de cuerpo." },
+export type Ejection = { cycle: number; kind: "UNMASK" | "VOTE" | "FINAL_VOTE"; bodyId: string; mindId: string; wasImmutable: boolean };
+export type GuessResults = { family: "guess"; mode: Mode; results: RoundResult[]; guesses: Record<string, Record<string, string>>; ejections: Ejection[] };
+export type ImmutableResults = {
+  family: "immutable"; mode: Mode; immutableId: string; winner: "changers" | "immutable";
+  bodies: Record<string, string>; history: Record<string, string[]>; ejections: Ejection[]; points: Record<string, number>;
+};
+export type ResultsPayload = GuessResults | ImmutableResults;
+export type Verdict = {
+  kind: "UNMASK" | "VOTE" | "FINAL_VOTE";
+  outcome: "none" | "ejected";
+  reason?: "tie" | "skip" | "noVotes";
+  bodyId?: string;
+  mindId?: string;
+  wasSame?: boolean;
+  wasImmutable?: boolean;
+  tally?: Record<string, number>;
+  winner?: "changers" | "immutable";
 };
 
-// Mismas fórmulas que el server (GameRoom.ts)
+export const MODES: Record<Mode, { icon: string; label: string; desc: string; family: "guess" | "immutable" }> = {
+  classic: { icon: "🎲", label: "Clásico", desc: "Cambian algunos (siempre quedan 2 en su cuerpo). Nadie sabe cuántos.", family: "guess" },
+  all: { icon: "🔀", label: "Todos cambian", desc: "Todas las mentes cambian de cuerpo.", family: "guess" },
+  immutable: { icon: "🗿", label: "El Inmutable", desc: "Uno nunca cambia; los demás cambian cada ciclo. ¡Expúlsalo!", family: "immutable" },
+  still: { icon: "🪨", label: "El No Cambiante", desc: "Uno nunca cambia; los demás cambian una sola vez. ¡Expúlsalo!", family: "immutable" },
+};
+export const isImmutableMode = (m: Mode) => MODES[m].family === "immutable";
+export const REACTIONS = ["😂", "😭", "😊", "❤️", "😡", "👏", "🤔", "👀", "🤡"];
+
+// Mismas fórmulas que el server (rules.ts)
 export const autoChats = (players: number) => Math.min(5, Math.max(2, Math.floor(players / 2)));
 export const skipNeeded = (connected: number) => Math.floor(connected / 2) + 1;
+export function autoCycles(mode: Mode, n: number, earlyVote: boolean) {
+  if (mode === "immutable") return Math.max(1, Math.min(3, n - 4));
+  if (mode === "still") return n >= 6 ? 3 : 2;
+  return earlyVote ? (n >= 9 ? 3 : 2) : 1;
+}

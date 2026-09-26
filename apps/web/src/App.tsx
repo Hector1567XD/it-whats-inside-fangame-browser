@@ -1,14 +1,17 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { Room } from "colyseus.js";
 import {
-  client, saveReconnect, loadReconnect, clearReconnect, roomInfo, autoChats, skipNeeded, MODES,
+  client, saveReconnect, loadReconnect, clearReconnect, roomInfo, autoChats, autoCycles, skipNeeded, isImmutableMode, MODES,
   type StateView, type ChatMsg, type DmMsg, type ResultsPayload, type PlayerView, type Settings, type Mode, type Phase,
+  type Role, type Verdict,
 } from "./net";
 import { Avatar, STYLES, STYLE_IDS, randomSeed, validAvatar, type StyleId } from "./Avatar";
 import { PhaseBanner, Stars, SwapScreen } from "./Overlay";
 import { GroupChat, Night, type Lookup, type Me } from "./Chat";
 import { DayView, Guess, QuestionPhase, ThreadPhase } from "./Phases";
 import { Results } from "./Results";
+import { SpectatorNote, VerdictScreen, VotePhase, type Floater } from "./Vote";
 import { sfx, isMuted, setMuted } from "./sfx";
 
 const COLORS = ["#ff4d8d", "#ff8a3d", "#ffd23d", "#5ee37a", "#3dd6ff", "#6c7bff", "#b36bff", "#ffffff"];
@@ -17,8 +20,8 @@ const codeFromUrl = () => new URLSearchParams(location.search).get("room")?.toUp
 const load = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 const save = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch {} };
 
-const PLAYING: Phase[] = ["SWAP", "QUESTION", "THREAD", "DAY", "NIGHT", "GUESS"];
-const SKIPPABLE: Phase[] = ["QUESTION", "THREAD", "DAY", "NIGHT", "GUESS"];
+const PLAYING: Phase[] = ["SWAP", "QUESTION", "THREAD", "DAY", "NIGHT", "UNMASK", "VOTE", "VERDICT", "GUESS", "FINAL_VOTE"];
+const SKIPPABLE: Phase[] = ["QUESTION", "THREAD", "DAY", "NIGHT", "UNMASK", "VOTE", "GUESS", "FINAL_VOTE"];
 
 export default function App() {
   const [room, setRoom] = useState<Room | null>(null);
@@ -58,7 +61,7 @@ function Home({ onRoom, notice }: { onRoom: (r: Room) => void; notice: string })
   const [name, setName] = useState(() => load("lqha:name") ?? "");
   const [color, setColor] = useState(() => load("lqha:color") ?? randomColor());
   const [avatar, setAvatar] = useState(() => validAvatar(load("lqha:avatar")));
-  const [mode, setMode] = useState<Mode>(() => (load("lqha:mode") === "all" ? "all" : "classic"));
+  const [mode, setMode] = useState<Mode>(() => { const m = load("lqha:mode"); return m && m in MODES ? (m as Mode) : "classic"; });
   const [code, setCode] = useState(codeFromUrl());
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -206,13 +209,15 @@ function RejoinModal({ r, busy, onPick, onClose }: { r: Rejoin; busy: boolean; o
 
 function HowToPlay({ onClose }: { onClose: () => void }) {
   const steps = [
-    ["🧳", "La máquina", "Al empezar cambia de cuerpo a algunos (Clásico: nadie sabe cuántos) o a todos. Te quedas así toda la partida."],
+    ["🧳", "La máquina", "Al empezar cambia de cuerpo a algunos (Clásico: nadie sabe cuántos), a todos, o a todos menos al Inmutable."],
     ["❓", "La Pregunta", "Todos responden la misma pregunta… desde el cuerpo en el que están."],
     ["🐦", "El Hilo", "Cada respuesta sale como post de X. Todos la comentan, una por una."],
     ["☀️", "Chat global", "Todos te ven con el nombre y avatar de tu cuerpo. Las respuestas quedan al lado."],
     ["🌙", "Chat privado", "Chats 1 a 1. Solo puedes INICIAR unos pocos (ojo al contador 💬); responder es gratis."],
-    ["🔍", "Adivina", "+200 por descubrir qué mente hay en un cuerpo cambiado. +50 por acertar que alguien NO cambió."],
+    ["🧩", "¿Quién es quién?", "Clásico y Todos: +200 por descubrir qué mente hay en un cuerpo cambiado. +50 por acertar que alguien NO cambió."],
     ["🥷", "Sigilo / Despiste", "+150 si cambiaste y menos de la mitad te descubre. +150 si NO cambiaste pero la mitad cree que sí."],
+    ["🎭", "El Desenmascare (opcional)", "Entre ciclos: si el 60% acierta qué mente hay en un cuerpo, esa mente queda fuera (−200) y quienes acertaron ganan +200."],
+    ["🗿", "Modos Inmutables", "Uno nunca cambia de cuerpo. Los demás lo buscan y lo votan en 🗳️ La Votación (opcional) y en el ⚖️ Juicio Final, como en Among Us."],
     ["⏭", "Saltar", "Si todos ya terminaron, voten para saltar la fase."],
   ];
   return (
@@ -247,10 +252,13 @@ function Floaties() {
 function Game({ room }: { room: Room }) {
   const [s, setS] = useState<StateView | null>(null);
   const [me, setMe] = useState<Me | null>(null); // lo manda el server (puede no ser mi sessionId si retomé un lugar)
+  const [role, setRole] = useState<Role>(null);
   const [chat, setChat] = useState<ChatMsg[]>([]);
   const [dms, setDms] = useState<Record<string, DmMsg[]>>({});
   const [used, setUsed] = useState(0);
   const [results, setResults] = useState<ResultsPayload | null>(null);
+  const [verdict, setVerdict] = useState<Verdict | null>(null);
+  const [floats, setFloats] = useState<Floater[]>([]);
   const [revealed, setRevealed] = useState(false);
   const [liked, setLiked] = useState<Set<string>>(new Set());
   const [toast, setToast] = useState<{ text: string; kind: string; id: number } | null>(null);
@@ -274,6 +282,8 @@ function Game({ room }: { room: Room }) {
     room.send("like", { id });
   }
 
+  const react = (target: string, emoji: string) => { sfx.click(); room.send("react", { target, emoji }); };
+
   useEffect(() => {
     room.onStateChange((st: any) => setS(st.toJSON()));
     // El estado inicial puede haber llegado antes de montar este componente (onStateChange no lo repite).
@@ -281,7 +291,7 @@ function Game({ room }: { room: Room }) {
     syncNow();
     const poll = setInterval(syncNow, 500);
     setTimeout(() => clearInterval(poll), 10000);
-    room.onMessage("identity", setMe);
+    room.onMessage("identity", ({ mindId, bodyId, role }: Me & { role: Role }) => { setMe({ mindId, bodyId }); setRole(role ?? null); });
     room.onMessage("chatHistory", setChat);
     room.onMessage("chat", (m: ChatMsg) => {
       setChat((c) => [...c, m]);
@@ -299,6 +309,12 @@ function Game({ room }: { room: Room }) {
     });
     room.onMessage("quota", ({ used }: { used: number }) => setUsed(used));
     room.onMessage("results", setResults);
+    room.onMessage("verdict", setVerdict);
+    room.onMessage("reaction", ({ target, emoji }: { target: string; emoji: string }) => {
+      const id = Math.random();
+      setFloats((f) => [...f.slice(-40), { id, target, emoji, x: 10 + Math.random() * 80 }]);
+      setTimeout(() => setFloats((f) => f.filter((x) => x.id !== id)), 1800);
+    });
     room.onMessage("joined", () => sfx.join());
     room.onMessage("rejoined", ({ id }: { id: string }) => { sfx.join(); flash(`🔌 ${room.state.players.get(id)?.name ?? "Alguien"} se reconectó`, "skip"); });
     room.onMessage("skipped", ({ by }: { by: string }) => flash(by === "host" ? "⏩ El host saltó la fase" : "⏭ ¡Votaron saltar!", "skip"));
@@ -313,7 +329,8 @@ function Game({ room }: { room: Room }) {
     if (s.phase === "NIGHT") { setDms({}); setUsed(0); }
     if (s.phase === "QUESTION") setLiked(new Set());
     if (s.phase === "LOBBY") { setResults(null); setRevealed(false); }
-    if (s.phase === "SWAP") setChat([]);
+    if (s.phase === "SWAP" && s.cycle === 0) setChat([]);
+    if (s.phase !== "VERDICT") setVerdict(null);
   }, [phaseKey]);
 
   // tic-tac en los últimos segundos
@@ -327,11 +344,12 @@ function Game({ room }: { room: Room }) {
   const players = Object.values(s.players);
   const isHost = s.hostId === me.mindId;
   const P: Lookup = (id) => s.players[id];
+  const spectator = !!P(me.mindId)?.out;
 
   return (
     <div className={"game phase-" + s.phase}>
       {s.phase === "NIGHT" && <Stars n={60} />}
-      <TopBar s={s} room={room} me={me} isHost={isHost} players={players} />
+      <TopBar s={s} room={room} me={me} role={role} isHost={isHost} players={players} />
       <PhaseBanner s={s} bodyName={P(me.bodyId)?.name ?? "?"} />
       {toast && <div key={toast.id} className={"toast toast-" + toast.kind}>{toast.text}</div>}
       <main>
@@ -341,11 +359,17 @@ function Game({ room }: { room: Room }) {
             <GroupChat room={room} entries={chat} me={me} P={P} speakAs={P(me.mindId)?.name ?? ""} />
           </div>
         )}
-        {s.phase === "SWAP" && <SwapScreen players={players} mind={P(me.mindId)} body={P(me.bodyId)} timer={s.timer} />}
+        {s.phase === "SWAP" && (
+          <SwapScreen key={s.cycle} players={players} mind={P(me.mindId)} body={P(me.bodyId)} timer={s.timer} role={role} reswap={s.cycle > 0} />
+        )}
         {s.phase === "QUESTION" && <QuestionPhase room={room} s={s} me={me} P={P} players={players} />}
         {s.phase === "THREAD" && <ThreadPhase room={room} s={s} me={me} P={P} liked={liked} toggleLike={toggleLike} />}
         {s.phase === "DAY" && <DayView room={room} s={s} chat={chat} me={me} P={P} liked={liked} toggleLike={toggleLike} />}
         {s.phase === "NIGHT" && <Night room={room} s={s} players={players} me={me} dms={dms} used={used} P={P} />}
+        {["UNMASK", "VOTE", "FINAL_VOTE"].includes(s.phase) && (
+          <VotePhase key={s.phase + s.cycle} room={room} s={s} me={me} role={role} P={P} players={players} floats={floats} react={react} />
+        )}
+        {s.phase === "VERDICT" && <VerdictScreen v={verdict} P={P} me={me} floats={floats} react={react} />}
         {s.phase === "GUESS" && <Guess room={room} s={s} players={players} me={me} P={P} />}
         {s.phase === "RESULTS" && (
           <>
@@ -353,26 +377,33 @@ function Game({ room }: { room: Room }) {
             {revealed && <GroupChat className="results-chat" room={room} entries={chat} me={me} P={P} speakAs={P(me.mindId)?.name ?? ""} />}
           </>
         )}
+        {spectator && ["DAY", "THREAD"].includes(s.phase) && <SpectatorNote />}
       </main>
     </div>
   );
 }
 
 function phaseLabel(s: StateView) {
-  const cyc = s.settings.cycles > 1 && s.cycle > 0 ? ` · ciclo ${s.cycle}/${s.settings.cycles}` : "";
+  const cyc = s.totalCycles > 1 && s.cycle > 0 ? ` · ciclo ${s.cycle}/${s.totalCycles}` : "";
   switch (s.phase) {
     case "LOBBY": return "🛋️ Sala de espera";
-    case "SWAP": return "🧳 La máquina";
+    case "SWAP": return s.cycle > 0 ? `🧳 Re-cambio${cyc}` : "🧳 La máquina";
     case "QUESTION": return `❓ La Pregunta${cyc}`;
     case "THREAD": return `🐦 El Hilo ${s.thread + 1}/${s.posts.length}${cyc}`;
     case "DAY": return `☀️ Chat global${cyc}`;
     case "NIGHT": return `🌙 Chat privado${cyc}`;
-    case "GUESS": return "🔍 ¿Quién es quién?";
+    case "UNMASK": return `🎭 El Desenmascare${cyc}`;
+    case "VOTE": return `🗳️ La Votación${cyc}`;
+    case "VERDICT": return "⚖️ Resultado";
+    case "GUESS": return "🧩 ¿Quién es quién?";
+    case "FINAL_VOTE": return "⚖️ Juicio Final";
     default: return "🏆 Resultados";
   }
 }
 
-function TopBar({ s, room, me, isHost, players }: { s: StateView; room: Room; me: Me; isHost: boolean; players: PlayerView[] }) {
+function TopBar({ s, room, me, role, isHost, players }: {
+  s: StateView; room: Room; me: Me; role: Role; isHost: boolean; players: PlayerView[];
+}) {
   const [hidden, setHidden] = useState(false);
   const [copied, setCopied] = useState(false);
   const [muted, setM] = useState(isMuted());
@@ -380,18 +411,26 @@ function TopBar({ s, room, me, isHost, players }: { s: StateView; room: Room; me
   const body = s.players[me.bodyId];
   const label = phaseLabel(s);
   const same = me.mindId === me.bodyId;
+  const spectator = !!mind?.out;
 
-  const connected = players.filter((p) => p.connected);
-  const votes = connected.filter((p) => p.skipVote).length;
-  const needed = skipNeeded(connected.length);
-  const myVote = s.players[me.mindId]?.skipVote;
-  const canVote = SKIPPABLE.includes(s.phase);
+  const voters = players.filter((p) => p.connected && !p.out);
+  const votes = voters.filter((p) => p.skipVote).length;
+  const needed = skipNeeded(voters.length);
+  const myVote = mind?.skipVote;
+  const canVote = SKIPPABLE.includes(s.phase) && !spectator;
 
   function copy() {
-    navigator.clipboard?.writeText(`${location.origin}${location.pathname}?room=${room.roomId}`);
+    navigator.clipboard?.writeText(`${location.origin}${location.pathname}?room=${room.roomId}`).catch(() => {});
     sfx.pop();
     setCopied(true); setTimeout(() => setCopied(false), 1500);
   }
+
+  let roleText: ReactNode;
+  if (spectator) roleText = <span>👻 <b>Espectador</b> · eras {mind?.name}</span>;
+  else if (role === "immutable") roleText = <span>🗿 <b>Eres el Inmutable</b> · sigues en tu cuerpo <em>— que no te descubran</em></span>;
+  else if (role === "changer") roleText = <span>🔀 <b>Cambiante</b> · Mente: <b>{mind?.name}</b> · Cuerpo: <b>{body?.name}</b></span>;
+  else if (same) roleText = <span>🟢 <b>No cambiaste</b> · sigues siendo <b>{mind?.name}</b>{s.phase !== "RESULTS" && <em> — ¿haces creer que sí? 😏</em>}</span>;
+  else roleText = <span>Mente: <b>{mind?.name}</b> · Cuerpo: <b>{body?.name}</b>{s.phase !== "RESULTS" && <em> — actúa como {body?.name}</em>}</span>;
 
   return (
     <header className="top">
@@ -415,13 +454,7 @@ function TopBar({ s, room, me, isHost, players }: { s: StateView; room: Room; me
           {hidden ? "👁 Mostrar mi rol" : (
             <>
               <Avatar avatar={body.avatar} color={body.color} size={30} />
-              {same ? (
-                <span>🟢 <b>No cambiaste</b> · sigues siendo <b>{mind.name}</b>
-                  {s.phase !== "RESULTS" && <em> — ¿haces creer que sí? 😏</em>}</span>
-              ) : (
-                <span>Mente: <b>{mind.name}</b> · Cuerpo: <b>{body.name}</b>
-                  {s.phase !== "RESULTS" && <em> — actúa como {body.name}</em>}</span>
-              )}
+              {roleText}
             </>
           )}
         </button>
@@ -445,7 +478,7 @@ function Lobby({ s, players, isHost, room }: { s: StateView; players: PlayerView
             {p.id === s.hostId && <span className="tag">👑 HOST</span>}
             {played && (
               <span className="score">
-                {p.lastPoints > 0 && <span className="last">+{p.lastPoints}</span>} <b>{p.score}</b> pts
+                {p.lastPoints !== 0 && <span className={"last" + (p.lastPoints < 0 ? " neg" : "")}>{p.lastPoints > 0 ? "+" : ""}{p.lastPoints}</span>} <b>{p.score}</b> pts
               </span>
             )}
           </li>
@@ -465,21 +498,43 @@ function Lobby({ s, players, isHost, room }: { s: StateView; players: PlayerView
   );
 }
 
+function Toggle({ label, on, disabled, onChange }: { label: ReactNode; on: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button type="button" className="toggle" aria-pressed={on} disabled={disabled} onClick={() => onChange(!on)}>
+      <span className="box" /> <span>{label}</span>
+    </button>
+  );
+}
+
 function SettingsPanel({ s, isHost, room, players }: { s: StateView; isHost: boolean; room: Room; players: number }) {
   const st = s.settings;
+  const inm = isImmutableMode(st.mode);
+  const [warn, setWarn] = useState(false);
   const set = (patch: Partial<Settings>) => { sfx.click(); room.send("settings", patch); };
   const fmt = (sec: number) => (sec === 0 ? "Off" : sec >= 60 ? `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")} min` : `${sec}s`);
   const time = (label: string, key: keyof Settings, step: number) => ({
     label, value: fmt(st[key] as number),
     dec: () => set({ [key]: (st[key] as number) - step }), inc: () => set({ [key]: (st[key] as number) + step }),
   });
+  const cycles = st.cycles > 0 ? st.cycles : autoCycles(st.mode, players, st.earlyVote);
+  const voteName = inm ? "🗳️ La Votación" : "🎭 El Desenmascare";
+  const finalName = inm ? "⚖️ Juicio Final" : "🧩 ¿Quién es quién?";
+
+  function toggleEarly(v: boolean) {
+    if (v && players < 7) return setWarn(true);
+    set({ earlyVote: v });
+  }
+
   const rows = [
-    { label: "🔁 Ciclos", value: `${st.cycles}`, dec: () => set({ cycles: st.cycles - 1 }), inc: () => set({ cycles: st.cycles + 1 }) },
+    {
+      label: "🔁 Ciclos", value: st.cycles === 0 ? `Auto (${cycles})` : `${st.cycles}`,
+      dec: () => set({ cycles: Math.max(0, st.cycles - 1) }), inc: () => set({ cycles: st.cycles + 1 }),
+    },
     time("❓ La Pregunta", "questionSeconds", 15),
     time("🐦 El Hilo (c/ respuesta)", "threadSeconds", 5),
     time("☀️ Chat global", "daySeconds", 15),
     time("🌙 Chat privado", "nightSeconds", 15),
-    time("🔍 Adivinanza", "guessSeconds", 15),
+    time(finalName, "guessSeconds", 15),
     {
       label: "💬 Chats por noche",
       value: st.chatsPerNight === 0 ? `Auto (${autoChats(players)})` : `${st.chatsPerNight}`,
@@ -487,29 +542,67 @@ function SettingsPanel({ s, isHost, room, players }: { s: StateView; isHost: boo
       inc: () => set({ chatsPerNight: st.chatsPerNight + 1 }),
     },
   ];
-  const flow = [
+  const earlyRows = st.earlyVote ? [
+    time(`⏱ ${voteName}`, "voteSeconds", 5),
+    {
+      label: "🚪 Máx. expulsiones", value: st.maxEjections === 0 ? "Sin límite" : `${st.maxEjections}`,
+      dec: () => set({ maxEjections: Math.max(0, st.maxEjections - 1) }), inc: () => set({ maxEjections: st.maxEjections + 1 }),
+    },
+  ] : [];
+
+  const perCycle = [
     st.questionSeconds > 0 && "❓",
     st.questionSeconds > 0 && st.threadSeconds > 0 && "🐦",
     st.daySeconds > 0 && "☀️",
     st.nightSeconds > 0 && "🌙",
   ].filter(Boolean).join(" → ");
+  const between = [st.earlyVote && (inm ? "🗳️" : "🎭"), st.mode === "immutable" && "🧳"].filter(Boolean).join(" → ");
+  const warnings: string[] = [];
+  if (st.earlyVote && cycles < 2) warnings.push(`Con 1 ciclo no hay ${voteName}: al último ciclo le sigue ${finalName}.`);
+  if (st.earlyVote && players < 7) warnings.push(`Con menos de 7 jugadores ${voteName} entre ciclos suele sacar a alguien muy pronto.`);
+  if (st.mode === "immutable" && cycles > Math.max(1, players - 4)) {
+    warnings.push(`Con ${players} jugadores y ${cycles} ciclos los cambiantes pueden deducir al Inmutable por eliminación.`);
+  }
+
+  const row = (r: { label: string; value: string; dec: () => void; inc: () => void }) => (
+    <div key={r.label} className="set-row">
+      <span>{r.label}</span>
+      <div className="stepper">
+        {isHost && <button onClick={r.dec}>−</button>}
+        <b key={r.value} className="pop-in">{r.value}</b>
+        {isHost && <button onClick={r.inc}>+</button>}
+      </div>
+    </div>
+  );
+
   return (
     <div className="settings">
       <h3>⚙️ Partida {isHost ? "" : <span className="muted">(la configura el host)</span>}</h3>
       <ModePicker mode={st.mode} disabled={!isHost} onChange={(m) => set({ mode: m })} />
-      {rows.map((r) => (
-        <div key={r.label} className="set-row">
-          <span>{r.label}</span>
-          <div className="stepper">
-            {isHost && <button onClick={r.dec}>−</button>}
-            <b key={r.value} className="pop-in">{r.value}</b>
-            {isHost && <button onClick={r.inc}>+</button>}
-          </div>
-        </div>
-      ))}
+      {rows.map(row)}
+      <div className="checks">
+        <Toggle label={`${voteName} entre ciclos`} on={st.earlyVote} disabled={!isHost} onChange={toggleEarly} />
+        {st.earlyVote && st.mode === "classic" && (
+          <Toggle label="Se puede desenmascarar a quien no cambió" on={st.unmaskSame} disabled={!isHost} onChange={(v) => set({ unmaskSame: v })} />
+        )}
+      </div>
+      {earlyRows.map(row)}
+      {warnings.map((w) => <p key={w} className="set-warn">⚠️ {w}</p>)}
       <p className="muted small">
-        Orden: 🧳 → {flow ? `(${flow})${st.cycles > 1 ? ` ×${st.cycles}` : ""} → ` : ""}🔍 → 🏆. Pon una fase en <b>Off</b> para saltártela.
+        Orden: 🧳 → {perCycle || between ? `(${[perCycle, between].filter(Boolean).join(" → ")})${cycles > 1 ? ` ×${cycles}` : ""} → ` : ""}{finalName} → 🏆.
+        {" "}La votación entre ciclos no ocurre en el último ciclo. Pon una fase en <b>Off</b> para saltártela.
       </p>
+      {warn && createPortal(
+        <div className="modal-bg" onClick={() => setWarn(false)}>
+          <div className="card modal rejoin" onClick={(e) => e.stopPropagation()}>
+            <h2>⚠️ Pocos jugadores</h2>
+            <p>Con menos de 7 jugadores, {voteName} entre ciclos suele sacar a alguien muy pronto y la partida pierde gracia. ¿Activarla igual?</p>
+            <button className="btn big" onClick={() => { setWarn(false); set({ earlyVote: true }); }}>Activar igual</button>
+            <button className="chip" onClick={() => { sfx.click(); setWarn(false); }}>Mejor no</button>
+          </div>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }

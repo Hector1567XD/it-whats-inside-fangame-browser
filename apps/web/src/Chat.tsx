@@ -7,13 +7,15 @@ import type { ChatMsg, DmMsg, PlayerView, StateView } from "./net";
 export type Me = { mindId: string; bodyId: string };
 export type Lookup = (id: string) => PlayerView | undefined;
 
-export function GroupChat({ room, entries, me, P, speakAs, className = "" }: {
-  room: Room; entries: ChatMsg[]; me: Me; P: Lookup; speakAs: string; className?: string;
+export function GroupChat({ room, entries, me, P, speakAs, className = "", readOnly }: {
+  room: Room; entries: ChatMsg[]; me: Me; P: Lookup; speakAs: string; className?: string; readOnly?: boolean;
 }) {
   return (
     <div className={"card chat " + className}>
       <Messages items={entries.map((m) => ({ ...m, mine: m.fromBody === (m.real ? me.mindId : me.bodyId) }))} P={P} />
-      <Composer onSend={(text) => room.send("chat", { text })} placeholder={`Escribe como ${speakAs}…`} />
+      {readOnly
+        ? <div className="read-only">👻 Eres espectador: solo puedes leer.</div>
+        : <Composer onSend={(text) => room.send("chat", { text })} placeholder={`Escribe como ${speakAs}…`} />}
     </div>
   );
 }
@@ -62,7 +64,7 @@ export function Composer({ onSend, placeholder, disabled, focusKey = "", maxLeng
 export function Night({ room, s, players, me, dms, used, P }: {
   room: Room; s: StateView; players: PlayerView[]; me: Me; dms: Record<string, DmMsg[]>; used: number; P: Lookup;
 }) {
-  const others = players.filter((p) => p.id !== me.bodyId);
+  const others = players.filter((p) => p.id !== me.bodyId && !p.bodyOut);
   const [sel, setSel] = useState<string>("");
   const active = sel || Object.keys(dms)[0] || "";
   // Mensajes leídos por conversación: el chat abierto se marca como leído al instante.
@@ -76,6 +78,9 @@ export function Night({ room, s, players, me, dms, used, P }: {
   const iStarted = (id: string) => dms[id]?.[0]?.fromBody === me.bodyId;
   const locked = (id: string) => !hasConvo(id) && left === 0;
 
+  if (P(me.mindId)?.out) {
+    return <div className="card center-text night-empty">🌙<br />Los demás están en sus chats privados.<br /><span className="muted">👻 Como espectador no puedes verlos.</span></div>;
+  }
   return (
     <div className="night">
       <div className="card tabs">

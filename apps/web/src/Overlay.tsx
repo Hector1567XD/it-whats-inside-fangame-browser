@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import confetti from "canvas-confetti";
 import { Avatar } from "./Avatar";
 import { sfx } from "./sfx";
-import type { PlayerView, StateView } from "./net";
+import type { PlayerView, Role, StateView } from "./net";
 
-type Banner = { kind: "QUESTION" | "THREAD" | "DAY" | "NIGHT" | "GUESS" | "RESULTS"; title: string; sub: string; ms: number };
+type Banner = { kind: "QUESTION" | "THREAD" | "DAY" | "NIGHT" | "UNMASK" | "VOTE" | "GUESS" | "FINAL_VOTE" | "RESULTS"; title: string; sub: string; ms: number };
 
 /** Letrero gigante animado cada vez que cambia la fase. */
 export function PhaseBanner({ s, bodyName }: { s: StateView; bodyName: string }) {
@@ -16,7 +16,7 @@ export function PhaseBanner({ s, bodyName }: { s: StateView; bodyName: string })
     const wasFirst = first.current;
     first.current = false;
     let banner: Banner | null = null;
-    const cyc = s.settings.cycles > 1 ? ` ${s.cycle}` : "";
+    const cyc = s.totalCycles > 1 ? ` ${s.cycle}` : "";
     if (s.phase === "QUESTION") {
       banner = { kind: "QUESTION", title: "LA PREGUNTA", sub: `Responde como ${bodyName}… o como tú 😏`, ms: 2600 };
       sfx.guess();
@@ -30,6 +30,15 @@ export function PhaseBanner({ s, bodyName }: { s: StateView; bodyName: string })
       const n = s.chatLimit;
       banner = { kind: "NIGHT", title: `CHAT PRIVADO${cyc}`, sub: `Solo puedes INICIAR ${n} chat${n === 1 ? "" : "s"} privado${n === 1 ? "" : "s"} 🤫`, ms: 3400 };
       sfx.night();
+    } else if (s.phase === "UNMASK") {
+      banner = { kind: "UNMASK", title: "EL DESENMASCARE", sub: "Acusa: ¿qué mente hay en qué cuerpo? 🎭", ms: 2600 };
+      sfx.guess();
+    } else if (s.phase === "VOTE") {
+      banner = { kind: "VOTE", title: "LA VOTACIÓN", sub: "¿Quién nunca cambió? Vota o ⏭ omite 🗳️", ms: 2600 };
+      sfx.guess();
+    } else if (s.phase === "FINAL_VOTE") {
+      banner = { kind: "FINAL_VOTE", title: "JUICIO FINAL", sub: "Última votación: ¿quién es el Inmutable? ⚖️", ms: 2800 };
+      sfx.guess();
     } else if (s.phase === "GUESS") {
       banner = { kind: "GUESS", title: "¿QUIÉN ES QUIÉN?", sub: "Adivina qué mente hay en cada cuerpo", ms: 2600 };
       sfx.guess();
@@ -51,7 +60,10 @@ export function PhaseBanner({ s, bodyName }: { s: StateView; bodyName: string })
         {b.kind === "DAY" && <div className="sun">☀️</div>}
         {b.kind === "NIGHT" && <Stars n={40} />}
         {b.kind === "NIGHT" && <div className="moon">🌙</div>}
-        {b.kind === "GUESS" && <div className="lens">🔍</div>}
+        {b.kind === "GUESS" && <div className="lens">🧩</div>}
+        {b.kind === "UNMASK" && <div className="lens">🎭</div>}
+        {b.kind === "VOTE" && <div className="lens">🗳️</div>}
+        {b.kind === "FINAL_VOTE" && <><div className="sunrays" /><div className="lens">⚖️</div></>}
         {b.kind === "QUESTION" && <div className="lens">❓</div>}
         {b.kind === "THREAD" && <><div className="sunrays" /><div className="lens">🐦</div></>}
         {b.kind === "RESULTS" && <div className="lens">🥁</div>}
@@ -81,7 +93,24 @@ export function Stars({ n }: { n: number }) {
 }
 
 /** Fase SWAP: la ruleta de cuerpos que termina en tu nuevo cuerpo. */
-export function SwapScreen({ players, mind, body, timer }: { players: PlayerView[]; mind?: PlayerView; body?: PlayerView; timer: number }) {
+export function SwapScreen({ players: all, mind, body, timer, role, reswap }: {
+  players: PlayerView[]; mind?: PlayerView; body?: PlayerView; timer: number; role: Role; reswap: boolean;
+}) {
+  const players = all.filter((p) => !p.bodyOut);
+  if (mind?.out) {
+    return (
+      <div className="swap">
+        <h1 className="swap-title">🧳 ¡RE-CAMBIO!</h1>
+        <p className="swap-now">👻 Los demás cambian de cuerpo… tú solo miras.</p>
+      </div>
+    );
+  }
+  return <SwapRoulette players={players} mind={mind} body={body} timer={timer} role={role} reswap={reswap} />;
+}
+
+function SwapRoulette({ players, mind, body, timer, role, reswap }: {
+  players: PlayerView[]; mind?: PlayerView; body?: PlayerView; timer: number; role: Role; reswap: boolean;
+}) {
   const [idx, setIdx] = useState(0);
   const [landed, setLanded] = useState(false);
   const target = Math.max(0, players.findIndex((p) => p.id === body?.id));
@@ -112,7 +141,7 @@ export function SwapScreen({ players, mind, body, timer }: { players: PlayerView
 
   return (
     <div className="swap">
-      <h1 className="swap-title">🧳 ¡LA MÁQUINA ESTÁ LISTA!</h1>
+      <h1 className="swap-title">{reswap ? "🧳 ¡RE-CAMBIO!" : "🧳 ¡LA MÁQUINA ESTÁ LISTA!"}</h1>
       {mind && (
         <p className="swap-mind">
           Tu mente: <Avatar avatar={mind.avatar} color={mind.color} size={32} /> <b>{mind.name}</b> … sale volando 👻
@@ -126,7 +155,23 @@ export function SwapScreen({ players, mind, body, timer }: { players: PlayerView
           </div>
         ))}
       </div>
-      {landed && body && body.id === mind?.id ? (
+      {landed && body && role === "immutable" ? (
+        <div className="swap-result">
+          <div className="swap-now">🗿 Eres EL INMUTABLE</div>
+          <Avatar avatar={body.avatar} color={body.color} size={120} className="wobble" />
+          <div className="swap-body">Te quedas en tu cuerpo</div>
+          <p className="swap-tip">Los demás {reswap ? "volvieron a cambiar" : "cambiaron"} de cuerpo. Actúa como si también cambiaras y haz que expulsen a los cambiantes. Ganas si sobrevives al <b>⚖️ Juicio Final</b>.</p>
+          <p className="muted">Empieza en {timer}s…</p>
+        </div>
+      ) : landed && body && role === "changer" ? (
+        <div className="swap-result">
+          <div className="swap-now">🔀 Eres cambiante. {reswap ? "Nuevo cuerpo:" : "Ahora estás en el cuerpo de"}</div>
+          <Avatar avatar={body.avatar} color={body.color} size={120} className="wobble" />
+          <div className="swap-body">{body.name}</div>
+          <p className="swap-tip">Uno de los jugadores <b>nunca cambia</b>: el Inmutable. Descúbrelo y vótalo antes del final. 🕵️</p>
+          <p className="muted">Empieza en {timer}s…</p>
+        </div>
+      ) : landed && body && body.id === mind?.id ? (
         <div className="swap-result">
           <div className="swap-now">🟢 ¡La máquina te devolvió a tu cuerpo!</div>
           <Avatar avatar={body.avatar} color={body.color} size={120} className="wobble" />
