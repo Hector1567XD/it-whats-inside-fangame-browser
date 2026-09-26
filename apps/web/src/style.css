@@ -297,3 +297,6 @@ main > .card { flex: 1; }
 .how li { display: flex; gap: 12px; align-items: flex-start; background: rgba(255, 255, 255, 0.08); padding: 10px; border-radius: 14px; }
 .how-icon { font-size: 30px; line-height: 1; }
 .how p { margin: 2px 0 0; font-size: 14px; color: var(--muted); }
+.rejoin { display: flex; flex-direction: column; gap: 12px; text-align: center; align-items: center; }
+.rejoin p { margin: 0; }
+.rejoin-names { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }

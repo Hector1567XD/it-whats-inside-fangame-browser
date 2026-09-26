@@ -17,7 +17,7 @@ app.get("/health", (_req, res) => res.json({ ok: true }));
 app.get("/api/rooms/:code", async (req, res) => {
   const rooms = await matchMaker.query({ roomId: req.params.code.toUpperCase() });
   const r = rooms[0];
-  res.json(r ? { exists: true, locked: r.locked, clients: r.clients, maxClients: r.maxClients } : { exists: false });
+  res.json(r ? { exists: true, phase: r.metadata?.phase ?? "LOBBY", names: r.metadata?.names ?? [] } : { exists: false });
 });
 
 // En producción el server sirve el build del front (un solo deploy).

@@ -20,6 +20,7 @@ type Lookup = (id: string) => PlayerView | undefined;
 export default function App() {
   const [room, setRoom] = useState<Room | null>(null);
   const [booting, setBooting] = useState(true);
+  const [notice, setNotice] = useState("");
 
   // Intentar reconectar si recargaste la página estando en una sala
   useEffect(() => {
@@ -33,6 +34,8 @@ export default function App() {
   function onRoom(r: Room) {
     saveReconnect(r);
     history.replaceState(null, "", `?room=${r.roomId}`);
+    setNotice("");
+    r.onMessage("kicked", ({ message }: { message: string }) => setNotice(message));
     r.onLeave(() => {
       clearReconnect();
       setRoom(null);
@@ -41,12 +44,14 @@ export default function App() {
   }
 
   if (booting) return <div className="center"><div className="loader">🎭</div></div>;
-  return room ? <Game room={room} /> : <Home onRoom={onRoom} />;
+  return room ? <Game room={room} /> : <Home onRoom={onRoom} notice={notice} />;
 }
 
 // ======================= HOME =======================
 
-function Home({ onRoom }: { onRoom: (r: Room) => void }) {
+type Rejoin = { code: string; names: string[]; suggested?: string };
+
+function Home({ onRoom, notice }: { onRoom: (r: Room) => void; notice: string }) {
   const [name, setName] = useState(() => load("lqha:name") ?? "");
   const [color, setColor] = useState(() => load("lqha:color") ?? COLORS[Math.floor(Math.random() * COLORS.length)]);
   const [avatar, setAvatar] = useState(() => load("lqha:avatar") ?? randomAvatar());
@@ -57,19 +62,27 @@ function Home({ onRoom }: { onRoom: (r: Room) => void }) {
   const style = avatar.split(":")[0] as StyleId;
   const [options, setOptions] = useState(() => Array.from({ length: 5 }, randomSeed));
   const [how, setHow] = useState(false);
+  const [rejoin, setRejoin] = useState<Rejoin | null>(null);
 
-  async function go(kind: "create" | "join") {
-    if (!name.trim()) { sfx.error(); return setErr("Pon tu username"); }
-    save("lqha:name", name.trim()); save("lqha:color", color); save("lqha:avatar", avatar);
+  async function go(kind: "create" | "join", takeoverAs?: string) {
+    const n = (takeoverAs ?? name).trim();
+    if (!n) { sfx.error(); return setErr("Pon tu username"); }
+    save("lqha:name", n); save("lqha:color", color); save("lqha:avatar", avatar);
     setErr(""); setBusy(true); sfx.boing();
     try {
-      const opts = { name: name.trim(), color, avatar };
+      const opts = { name: n, color, avatar, takeover: !!takeoverAs };
       if (kind === "create") onRoom(await client.create("game", opts));
       else {
         const c = code.trim().toUpperCase();
-        const info = await roomInfo(c);
-        if (!info.exists) throw new Error("Esa sala no existe");
-        if (info.locked) throw new Error("La sala ya está en partida o llena");
+        if (!takeoverAs) {
+          const info = await roomInfo(c);
+          if (!info.exists) throw new Error("Esa sala no existe");
+          const names = info.names ?? [];
+          const same = names.find((x) => x.toLowerCase() === n.toLowerCase());
+          // Mismo nombre que alguien de la sala, o partida en curso: preguntar si quiere retomar un lugar.
+          if (same || info.phase !== "LOBBY") return setRejoin({ code: c, names, suggested: same });
+        }
+        setRejoin(null);
         onRoom(await client.joinById(c, opts));
       }
     } catch (e: any) {
@@ -85,6 +98,9 @@ function Home({ onRoom }: { onRoom: (r: Room) => void }) {
     <div className="center home-wrap">
       <Floaties />
       {how && <HowToPlay onClose={() => setHow(false)} />}
+      {rejoin && (
+        <RejoinModal r={rejoin} busy={busy} onPick={(n) => { setName(n); go("join", n); }} onClose={() => setRejoin(null)} />
+      )}
       <div className="card home pop-in">
         <h1 className="logo">MIND<span>SWAP</span></h1>
         <p className="sub">Cambia de cuerpo. Descubre quién es quién.<br /><em>Al final, lo que importa es lo que hay adentro 😉</em></p>
@@ -128,8 +144,35 @@ function Home({ onRoom }: { onRoom: (r: Room) => void }) {
             </div>
           </>
         )}
+        {notice && <div className="err">{notice}</div>}
         {err && <div className="err shake">{err}</div>}
         <p className="credits">Avatares: <a href="https://www.dicebear.com" target="_blank" rel="noreferrer">DiceBear</a> · Fun Emoji (Davis Uche), Big Smile (Ashley Seo), Adventurer (Lisa Wischofsky), Croodles (vijay verma) — CC BY 4.0 · Bottts (Pablo Stanley)</p>
+      </div>
+    </div>
+  );
+}
+
+function RejoinModal({ r, busy, onPick, onClose }: { r: Rejoin; busy: boolean; onPick: (name: string) => void; onClose: () => void }) {
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <div className="card modal rejoin" onClick={(e) => e.stopPropagation()}>
+        {r.suggested ? (
+          <>
+            <h2>🤔 Ya hay un «{r.suggested}» en la sala</h2>
+            <p>¿Eres tú? Si confirmas, <b>tomas su lugar</b>: su cuerpo, sus puntos y sus chats. Si esa persona sigue conectada, saldrá de la sala.</p>
+            <button className="btn big" disabled={busy} onClick={() => onPick(r.suggested!)}>✅ Sí, soy {r.suggested} — reconectar</button>
+            <button className="chip" onClick={onClose}>✏️ No, voy a cambiar mi nombre</button>
+          </>
+        ) : (
+          <>
+            <h2>🔒 La partida ya empezó</h2>
+            <p>Si estabas jugando y se te cayó la conexión, elige quién eras para retomar tu lugar:</p>
+            <div className="rejoin-names">
+              {r.names.map((n) => <button key={n} className="btn" disabled={busy} onClick={() => onPick(n)}>{n}</button>)}
+            </div>
+            <button className="chip" onClick={onClose}>Cancelar</button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -175,7 +218,7 @@ function Floaties() {
 
 function Game({ room }: { room: Room }) {
   const [s, setS] = useState<StateView | null>(null);
-  const [me, setMe] = useState<Me>({ mindId: room.sessionId, bodyId: room.sessionId });
+  const [me, setMe] = useState<Me | null>(null); // lo manda el server (puede no ser mi sessionId si retomé un lugar)
   const [chat, setChat] = useState<ChatMsg[]>([]);
   const [dms, setDms] = useState<Record<string, DmMsg[]>>({});
   const [used, setUsed] = useState(0);
@@ -202,7 +245,7 @@ function Game({ room }: { room: Room }) {
     room.onMessage("chatHistory", setChat);
     room.onMessage("chat", (m: ChatMsg) => {
       setChat((c) => [...c, m]);
-      const mine = m.fromBody === (m.real ? meRef.current.mindId : meRef.current.bodyId);
+      const mine = m.fromBody === (m.real ? meRef.current?.mindId : meRef.current?.bodyId);
       mine ? sfx.send() : sfx.pop();
     });
     room.onMessage("dmHistory", (list: DmMsg[]) => {
@@ -212,11 +255,12 @@ function Game({ room }: { room: Room }) {
     });
     room.onMessage("dm", (m: DmMsg) => {
       setDms((d) => ({ ...d, [m.withBody]: [...(d[m.withBody] ?? []), m] }));
-      m.fromBody === meRef.current.bodyId ? sfx.send() : sfx.pop();
+      m.fromBody === meRef.current?.bodyId ? sfx.send() : sfx.pop();
     });
     room.onMessage("quota", ({ used }: { used: number }) => setUsed(used));
     room.onMessage("results", setResults);
     room.onMessage("joined", () => sfx.join());
+    room.onMessage("rejoined", ({ id }: { id: string }) => { sfx.join(); flash(`🔌 ${room.state.players.get(id)?.name ?? "Alguien"} se reconectó`, "skip"); });
     room.onMessage("skipped", ({ by }: { by: string }) => flash(by === "host" ? "⏩ El host saltó la fase" : "⏭ ¡Votaron saltar!", "skip"));
     room.onMessage("error", ({ message }) => { sfx.error(); flash(message, "error"); });
     room.send("whoami");
@@ -238,9 +282,9 @@ function Game({ room }: { room: Room }) {
     else if (s.timer > 0 && s.timer <= 10) sfx.tick();
   }, [s?.timer]);
 
-  if (!s) return <div className="center"><div className="loader">🎭</div></div>;
+  if (!s || !me) return <div className="center"><div className="loader">🎭</div></div>;
   const players = Object.values(s.players);
-  const isHost = s.hostId === room.sessionId;
+  const isHost = s.hostId === me.mindId;
   const P: Lookup = (id) => s.players[id];
 
   return (

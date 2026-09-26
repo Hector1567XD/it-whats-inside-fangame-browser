@@ -48,7 +48,9 @@ Letreros animados por fase, sonidos sintetizados con WebAudio (botón 🔊/🔇)
 
 Seguridad del secreto: el mapeo mente→cuerpo vive **solo en memoria privada del room** (no en el schema). Cada cliente recibe únicamente su propia identidad vía `identity`.
 
-Recargar la página reconecta a la sala (120 s de gracia).
+**Reconexión:**
+- Recargar la página reconecta sola (token de Colyseus, 120 s de gracia).
+- Si eso falla (otro dispositivo, se borró la pestaña, conexión "zombie"), entra a la sala con **el mismo nombre**: te pregunta "¿eres tú?" y retomas ese lugar (cuerpo, puntos, chats). Si la otra conexión seguía viva, se la saca con un aviso. Con la partida en curso solo se puede entrar así, eligiendo quién eras. Es inseguro a propósito: cualquiera que sepa tu nombre puede tomar tu lugar.
 
 ## Créditos de avatares
 

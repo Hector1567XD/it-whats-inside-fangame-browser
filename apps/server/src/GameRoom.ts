@@ -1,4 +1,4 @@
-import { Room, Client } from "@colyseus/core";
+import { Room, Client, ServerError, type Deferred } from "@colyseus/core";
 import { GameState, Player, Settings } from "./GameState.js";
 
 const num = (v: string | undefined, d: number) => (v && !isNaN(+v) ? +v : d);
@@ -53,8 +53,14 @@ type ChatMsg = { fromBody: string; real: boolean; tag: string; text: string; ts:
 type DmLog = { a: string; b: string; fromBody: string; text: string; ts: number }; // a = mente que escribe, b = destino
 
 export class GameRoom extends Room<GameState> {
-  maxClients = MAX_PLAYERS;
+  maxClients = MAX_PLAYERS * 2; // holgura para que alguien retome su lugar aunque la sala esté llena
   state = new GameState();
+
+  // Conexión <-> jugador. El id del jugador es el sessionId con el que entró la primera vez,
+  // pero otra conexión puede "retomar su lugar" entrando con el mismo nombre.
+  private pidOf = new Map<string, string>(); // sessionId -> playerId
+  private clientOfPid = new Map<string, Client>(); // playerId -> conexión actual
+  private pendingReconnect = new Map<string, Deferred<Client>>();
 
   // --- estado PRIVADO (nunca se sincroniza) ---
   private bodyOf = new Map<string, string>(); // mindId -> bodyId (fijo durante toda la ronda)
@@ -71,6 +77,7 @@ export class GameRoom extends Room<GameState> {
     this.state.minPlayers = MIN_PLAYERS;
     Object.assign(this.state.settings, { daySeconds: DAY_SECONDS, nightSeconds: NIGHT_SECONDS, guessSeconds: GUESS_SECONDS });
     this.clock.setInterval(() => this.tick(), 1000);
+    this.syncMeta();
 
     this.onMessage("whoami", (client) => this.sendIdentity(client));
 
@@ -79,7 +86,7 @@ export class GameRoom extends Room<GameState> {
       const ph = this.state.phase;
       if (!t || !["LOBBY", "DAY", "RESULTS"].includes(ph)) return;
       const real = ph !== "DAY"; // fuera del día se habla con la identidad real
-      const fromBody = real ? client.sessionId : this.bodyOf.get(client.sessionId) ?? client.sessionId;
+      const fromBody = real ? this.pid(client) : this.bodyOf.get(this.pid(client)) ?? this.pid(client);
       const tag = ph === "DAY" ? `☀️ Día ${this.state.dayCount}` : ph === "RESULTS" ? "🏆 Resultados" : "🛋️ Sala de espera";
       const msg: ChatMsg = { fromBody, real, tag, text: t, ts: Date.now() };
       this.chatLog.push(msg);
@@ -90,7 +97,7 @@ export class GameRoom extends Room<GameState> {
     this.onMessage("dm", (client, { toBody, text }: { toBody: string; text: string }) => {
       const t = clean(text);
       if (!t || this.state.phase !== "NIGHT") return;
-      const me = client.sessionId;
+      const me = this.pid(client);
       const myBody = this.bodyOf.get(me)!;
       const target = this.mindInBody(toBody);
       if (!target || target === me) return;
@@ -139,7 +146,7 @@ export class GameRoom extends Room<GameState> {
     // Votación de todos para saltar la fase (toggle).
     this.onMessage("voteSkip", (client) => {
       if (!["DAY", "NIGHT", "GUESS"].includes(this.state.phase)) return;
-      const p = this.state.players.get(client.sessionId);
+      const p = this.state.players.get(this.pid(client));
       if (!p) return;
       p.skipVote = !p.skipVote;
       this.checkSkipVotes();
@@ -147,8 +154,8 @@ export class GameRoom extends Room<GameState> {
 
     this.onMessage("guesses", (client, { guesses }: { guesses: Record<string, string> }) => {
       if (this.state.phase !== "GUESS") return;
-      this.guesses.set(client.sessionId, typeof guesses === "object" && guesses ? guesses : {});
-      const p = this.state.players.get(client.sessionId);
+      this.guesses.set(this.pid(client), typeof guesses === "object" && guesses ? guesses : {});
+      const p = this.state.players.get(this.pid(client));
       if (p) p.submitted = true;
       this.checkGuessesDone();
     });
@@ -159,8 +166,22 @@ export class GameRoom extends Room<GameState> {
     });
   }
 
-  onJoin(client: Client, opts: { name?: string; color?: string; avatar?: string }) {
-    let name = clean(opts?.name ?? "").slice(0, 16) || "Anónimo";
+  onAuth(_client: Client, opts: { name?: string; takeover?: boolean }) {
+    const existing = this.findByName(cleanName(opts?.name));
+    if (existing && opts?.takeover) return { takeover: existing.id };
+    if (this.state.phase !== "LOBBY") {
+      throw new ServerError(4001, existing
+        ? `Ya hay un ${existing.name} en la partida. Confirma que eres tú para retomar su lugar.`
+        : "La partida ya empezó. Si estabas jugando, entra con el mismo nombre que tenías.");
+    }
+    if (this.state.players.size >= MAX_PLAYERS) throw new ServerError(4002, "La sala está llena.");
+    return { takeover: null };
+  }
+
+  onJoin(client: Client, opts: { name?: string; color?: string; avatar?: string }, auth?: { takeover: string | null }) {
+    if (auth?.takeover && this.state.players.has(auth.takeover)) return this.takeOver(client, auth.takeover);
+
+    let name = cleanName(opts?.name);
     const taken = new Set([...this.state.players.values()].map((p) => p.name.toLowerCase()));
     let n = 2;
     const base = name;
@@ -171,19 +192,44 @@ export class GameRoom extends Room<GameState> {
     p.name = name;
     p.color = /^#[0-9a-f]{6}$/i.test(opts?.color ?? "") ? opts!.color! : "#ff4d8d";
     p.avatar = validAvatar(opts?.avatar) ?? `${AVATAR_STYLES[0]}:${name}`;
-    this.state.players.set(client.sessionId, p);
-    if (!this.state.hostId) this.state.hostId = client.sessionId;
+    this.bind(client, p.id);
+    this.state.players.set(p.id, p);
+    if (!this.state.hostId) this.state.hostId = p.id;
     this.broadcast("joined", { id: p.id }, { except: client });
+    this.syncMeta();
+  }
+
+  /** Una conexión nueva ocupa el lugar de un jugador existente (mismo cuerpo, puntos y chats). */
+  private takeOver(client: Client, pid: string) {
+    const p = this.state.players.get(pid)!;
+    const old = this.clientOfPid.get(pid);
+    const pending = this.pendingReconnect.get(pid);
+    this.pendingReconnect.delete(pid);
+    pending?.reject(new Error("taken over"));
+    this.bind(client, pid);
+    if (old && old !== client) {
+      old.send("kicked", { message: `Alguien entró como ${p.name} desde otro lugar y tomó tu lugar.` });
+      old.leave(4000);
+    }
+    p.connected = true;
+    if (!this.state.players.get(this.state.hostId)?.connected) this.state.hostId = pid;
+    this.broadcast("rejoined", { id: pid }, { except: client });
+    this.sendIdentity(client);
+    this.syncMeta();
   }
 
   async onLeave(client: Client, consented: boolean) {
-    const id = client.sessionId;
+    const id = this.pid(client);
+    this.pidOf.delete(client.sessionId);
+    if (this.clientOfPid.get(id) !== client) return; // ya lo reemplazó otra conexión
+    this.clientOfPid.delete(id);
     const p = this.state.players.get(id);
     if (!p) return;
 
     if (this.state.phase === "LOBBY") {
       this.state.players.delete(id);
       this.reassignHost();
+      this.syncMeta();
       return;
     }
 
@@ -193,13 +239,20 @@ export class GameRoom extends Room<GameState> {
     this.reassignHost();
     this.checkSkipVotes();
     this.checkGuessesDone();
+    this.syncMeta();
     if (consented) return;
+    const d = this.allowReconnection(client, 120);
+    this.pendingReconnect.set(id, d);
     try {
-      await this.allowReconnection(client, 120);
+      const back = await d;
+      this.bind(back, id);
       p.connected = true;
-      if (!this.state.hostId || !this.state.players.get(this.state.hostId)?.connected) this.state.hostId = id;
+      if (!this.state.players.get(this.state.hostId)?.connected) this.state.hostId = id;
+      this.syncMeta();
     } catch {
-      /* no volvió */
+      /* no volvió, o alguien retomó su lugar por nombre */
+    } finally {
+      if (this.pendingReconnect.get(id) === d) this.pendingReconnect.delete(id);
     }
   }
 
@@ -210,7 +263,6 @@ export class GameRoom extends Room<GameState> {
   // ---------------- ciclo de juego ----------------
 
   private startRound() {
-    this.lock();
     this.state.round++;
     this.state.dayCount = 0;
     this.guesses.clear();
@@ -272,9 +324,11 @@ export class GameRoom extends Room<GameState> {
   }
 
   private setPhase(phase: GameState["phase"], seconds: number) {
+    const changed = this.state.phase !== phase;
     this.state.phase = phase;
     this.state.timer = seconds;
     for (const p of this.state.players.values()) p.skipVote = false;
+    if (changed) this.syncMeta();
   }
 
   private checkSkipVotes() {
@@ -336,7 +390,11 @@ export class GameRoom extends Room<GameState> {
 
   private backToLobby() {
     for (const p of [...this.state.players.values()]) {
-      if (!p.connected) this.state.players.delete(p.id);
+      if (!p.connected) {
+        this.state.players.delete(p.id);
+        this.pendingReconnect.get(p.id)?.reject(new Error("removed"));
+        this.pendingReconnect.delete(p.id);
+      }
       else p.submitted = false;
     }
     this.bodyOf.clear();
@@ -346,7 +404,6 @@ export class GameRoom extends Room<GameState> {
     this.state.dayCount = 0;
     this.setPhase("LOBBY", 0);
     this.reassignHost();
-    this.unlock();
     this.clients.forEach((c) => this.sendIdentity(c));
   }
 
@@ -354,7 +411,7 @@ export class GameRoom extends Room<GameState> {
 
   /** Todo lo privado que un cliente necesita (también sirve para reconectar). */
   private sendIdentity(client: Client) {
-    const id = client.sessionId;
+    const id = this.pid(client);
     client.send("identity", { mindId: id, bodyId: this.bodyOf.get(id) ?? id });
     client.send("chatHistory", this.chatLog);
     if (this.state.phase === "NIGHT") {
@@ -372,12 +429,32 @@ export class GameRoom extends Room<GameState> {
     return undefined;
   }
 
+  private pid(client: Client) {
+    return this.pidOf.get(client.sessionId) ?? client.sessionId;
+  }
+
+  private bind(client: Client, pid: string) {
+    this.pidOf.set(client.sessionId, pid);
+    this.clientOfPid.set(pid, client);
+  }
+
   private clientOf(id: string) {
-    return this.clients.find((c) => c.sessionId === id);
+    return this.clientOfPid.get(id);
+  }
+
+  private findByName(name: string) {
+    const n = name.toLowerCase();
+    return [...this.state.players.values()].find((p) => p.name.toLowerCase() === n);
+  }
+
+  /** Lo que ve /api/rooms/:code antes de entrar (fase y nombres para reconectar). */
+  private syncMeta() {
+    const players = [...this.state.players.values()];
+    this.setMetadata({ phase: this.state.phase, names: players.map((p) => p.name), connected: players.map((p) => p.connected) });
   }
 
   private isHost(client: Client) {
-    return client.sessionId === this.state.hostId;
+    return this.pid(client) === this.state.hostId;
   }
 
   private reassignHost() {
@@ -399,6 +476,10 @@ function validAvatar(a: unknown) {
   if (typeof a !== "string") return undefined;
   const [style, seed] = a.split(":");
   return AVATAR_STYLES.includes(style) && /^[a-z0-9]{1,24}$/i.test(seed ?? "") ? a : undefined;
+}
+
+function cleanName(s: unknown) {
+  return clean(s).slice(0, 16) || "Anónimo";
 }
 
 function clean(s: unknown) {

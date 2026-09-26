@@ -29,7 +29,7 @@ export function clearReconnect() {
 
 export async function roomInfo(code: string) {
   const r = await fetch(`${SERVER_HTTP}/api/rooms/${encodeURIComponent(code)}`);
-  return (await r.json()) as { exists: boolean; locked?: boolean; clients?: number; maxClients?: number };
+  return (await r.json()) as { exists: boolean; phase?: Phase; names?: string[] };
 }
 
 // ---- tipos que espejan el server ----
