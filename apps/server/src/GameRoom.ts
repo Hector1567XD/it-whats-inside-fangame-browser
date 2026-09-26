@@ -808,8 +808,8 @@ export class GameRoom extends Room<GameState> {
 
   private setPhase(phase: Phase, seconds: number) {
     const changed = this.state.phase !== phase;
+    // Al salir del lobby la voz se apaga: cada cliente cierra sus conexiones y el server olvida las sesiones.
     if (changed && this.state.phase === "LOBBY") for (const id of [...this.sfuPeers.keys()]) this.sfuDrop(id, false);
-    if (changed && this.state.phase === "LOBBY") this.broadcastSfuPubs();
     this.state.phase = phase;
     this.state.timer = seconds;
     for (const p of this.state.players.values()) p.skipVote = false;
@@ -1019,6 +1019,8 @@ export class GameRoom extends Room<GameState> {
     // "config" se puede pedir siempre: dice si hay SFU y con qué ICE conectarse.
     if (op === "config") return reply({ ok: true, sfu: sfuEnabled(), iceServers: sfuEnabled() ? await iceServers() : [] });
     if (!sfuEnabled()) return reply({ error: "El SFU no está configurado" });
+    // Cerrar o salir con la fase ya cambiada no es un error: las sesiones ya se soltaron.
+    if ((op === "leave" || op === "close") && this.state.phase !== "LOBBY") return reply({ ok: true });
     if (this.state.phase !== "LOBBY" || !this.state.players.has(me)) return reply({ error: "La voz solo funciona en la sala de espera" });
     const peer = this.sfuPeers.get(me) ?? { ready: false };
     this.sfuPeers.set(me, peer);

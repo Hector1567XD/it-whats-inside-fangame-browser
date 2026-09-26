@@ -17,7 +17,6 @@ function iceServers(): RTCIceServer[] {
 
 const ICE = iceServers();
 const hasTurn = ICE.some((s) => [s.urls].flat().some((u) => /^turns?:/.test(u)));
-console.info(`[voz] ICE: ${ICE.map((s) => [s.urls].flat().join(",")).join(" · ")}${hasTurn ? "" : " (sin TURN)"}`);
 
 /** Tipo de un candidato ICE (host = red local, srflx = IP pública vía STUN, relay = TURN). */
 const candType = (c: RTCIceCandidateInit | RTCIceCandidate) =>
@@ -76,6 +75,7 @@ export class VoiceMesh implements VoiceTransport {
 
   constructor(private room: Room, private myId: string, private ctx: AudioContext, private track: MediaStreamTrack | null) {
     this.stream = track ? new MediaStream([track]) : null;
+    console.info(`[voz] malla P2P · ICE: ${ICE.map((s) => [s.urls].flat().join(",")).join(" · ")}${hasTurn ? "" : " (sin TURN)"}`);
     this.unsub = room.onMessage("rtc", ({ from, data }: { from: string; data: Signal }) => this.onSignal(from, data));
   }
 
