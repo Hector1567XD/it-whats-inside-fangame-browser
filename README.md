@@ -41,7 +41,7 @@ En el front, `VITE_SERVER_URL` si el server vive en otro dominio.
    - 🔀 **Todos cambian** (mín. 4): todos cambian, una vez. Final: 🧩 ¿Quién es quién?
    - 🗿 **El Inmutable** (mín. 5): uno nunca cambia; los demás vuelven a cambiar cada ciclo. Final: ⚖️ Juicio Final.
    - 🪨 **El No Cambiante** (mín. 4): uno nunca cambia; los demás cambian una sola vez. Final: ⚖️ Juicio Final.
-3. Ciclo: ❓ **La Pregunta** → 🐦 **El Hilo** (estilo X) → ☀️ **Chat global** → 🌙 **Chat privado** → (votación entre ciclos, opcional) → (🧳 re-cambio en El Inmutable). Ciclos en **Auto** según modo y jugadores (`rules.ts › autoCycles`).
+3. Ciclo: ❓ **La Pregunta** → 🦜 **El Hilo** (en Cotorra, la red social ficticia del juego: ❤️, 🤨 Sus, @menciones) → ☀️ **Chat global** → 🌙 **Chat privado** → (votación entre ciclos, opcional) → (🧳 re-cambio en El Inmutable). Ciclos en **Auto** según modo y jugadores (`rules.ts › autoCycles`).
 4. **Votaciones entre ciclos** (check del lobby; con < 7 jugadores pide confirmación; no ocurre en el último ciclo):
    - 🎭 **El Desenmascare** (Clásico/Todos): una acusación "cuerpo X tiene a la mente Y". Sale si el 60% de los activos (sin contar al acusado) acierta la misma; máx. 1 por votación; conteo oculto. Check extra en Clásico: permitir desenmascarar a quien no cambió.
    - 🗳️ **La Votación** (Inmutables): estilo Among Us, gana el cuerpo con más votos aunque sea 1; empate u ⏭ Omitir = nadie.

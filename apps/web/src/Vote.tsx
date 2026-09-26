@@ -4,7 +4,7 @@ import confetti from "canvas-confetti";
 import { Avatar } from "./Avatar";
 import type { Lookup, Me } from "./Chat";
 import { sfx } from "./sfx";
-import { REACTIONS, type PlayerView, type Role, type StateView, type Verdict } from "./net";
+import { REACTIONS, activeCount, type PlayerView, type Role, type StateView, type Verdict } from "./net";
 
 export type Floater = { id: number; target: string; emoji: string; x: number };
 
@@ -42,10 +42,10 @@ export function VotePhase({ room, s, me, role, P, players, floats, react }: {
 }) {
   const unmask = s.phase === "UNMASK";
   const final = s.phase === "FINAL_VOTE";
-  const iAmOut = !!P(me.mindId)?.out;
+  const iAmOut = !!me.spectator;
   const submitted = !!P(me.mindId)?.submitted;
-  const active = players.filter((p) => !p.out);
-  const done = active.filter((p) => p.submitted).length;
+  const done = players.filter((p) => !p.out && p.submitted).length;
+  const total = activeCount(players); // por cuerpos: cuenta bien aunque haya fantasmas
   const bodies = players.filter((p) => !p.bodyOut && p.id !== me.bodyId);
   const minds = players.filter((p) => !p.out && p.id !== me.mindId);
   const allowSame = s.settings.mode === "classic" && s.settings.unmaskSame;
@@ -69,9 +69,9 @@ export function VotePhase({ room, s, me, role, P, players, floats, react }: {
   }
 
   const title = unmask ? "🎭 El Desenmascare" : final ? "⚖️ Juicio Final" : "🗳️ La Votación";
-  const need = Math.ceil(0.6 * Math.max(1, active.length - 1));
+  const need = Math.ceil(0.6 * Math.max(1, total - 1));
   const help = unmask
-    ? <>Acusa <b>un</b> cuerpo y di qué mente hay adentro. Si <b>{need} de {active.length - 1}</b> aciertan la misma acusación, esa mente queda desenmascarada (−200) y quienes acertaron ganan +200. El conteo no se muestra.</>
+    ? <>Acusa <b>un</b> cuerpo y di qué mente hay adentro. Si <b>{need} de {total - 1}</b> aciertan la misma acusación, esa mente queda desenmascarada (−200) y quienes acertaron ganan +200. El conteo no se muestra.</>
     : final
       ? <>Última oportunidad. Si sale el Inmutable, <b>ganan los cambiantes</b>; si no sale nadie o sale un cambiante, <b>gana el Inmutable</b>.</>
       : <>Sale el cuerpo con más votos, aunque sea 1. Empate, o si gana ⏭ Omitir: no sale nadie.</>;
@@ -83,7 +83,7 @@ export function VotePhase({ room, s, me, role, P, players, floats, react }: {
     <div className={"card vote-phase" + (final ? " final" : "")}>
       <div className="vote-head">
         <h2>{title}</h2>
-        <span className="muted small">{done}/{active.length} ya {unmask ? "acusaron" : "votaron"}</span>
+        <span className="muted small">{done}/{total} ya {unmask ? "acusaron" : "votaron"}</span>
       </div>
       <p className="muted">{help}</p>
       {roleHint && !iAmOut && <div className="role-hint">{roleHint}</div>}
@@ -113,7 +113,7 @@ export function VotePhase({ room, s, me, role, P, players, floats, react }: {
         })}
       </div>
       {iAmOut ? null : submitted ? (
-        <p className="muted center-text">✅ Listo. Esperando al resto ({done}/{active.length})…</p>
+        <p className="muted center-text">✅ Listo. Esperando al resto ({done}/{total})…</p>
       ) : (
         <div className="vote-actions">
           <button className="btn big" disabled={!body || (unmask && !mind)} onClick={send}>
@@ -152,8 +152,9 @@ export function VerdictScreen({ v, P, me, floats, react }: {
   if (!v) return <div className="verdict"><div className="loader">⚖️</div></div>;
   const body = v.bodyId ? P(v.bodyId) : undefined;
   const mind = v.mindId ? P(v.mindId) : undefined;
-  const iAmOut = !!P(me.mindId)?.out;
-  const mine = v.mindId === me.mindId;
+  const iAmOut = !!me.spectator;
+  // En un fantasma no viene la mente; si el cuerpo expulsado era el mío, era yo.
+  const mine = v.mindId === me.mindId || (!!v.ghost && v.bodyId === me.bodyId);
 
   let headline = "";
   let sub = "";
@@ -166,8 +167,12 @@ export function VerdictScreen({ v, P, me, floats, react }: {
       sub = "Ningún cuerpo llegó al 60% de aciertos.";
     }
   } else if (v.outcome === "ejected") {
-    headline = `Expulsaron el cuerpo de ${body?.name}`;
-    sub = v.wasImmutable ? `¡Adentro estaba ${mind?.name}, EL INMUTABLE! 🗿` : `Adentro estaba ${mind?.name}. Era un cambiante 😬`;
+    headline = v.ghost ? `👻 El cuerpo de ${body?.name} ahora es un fantasma` : `Expulsaron el cuerpo de ${body?.name}`;
+    sub = v.wasImmutable
+      ? `¡Adentro estaba ${mind?.name}, EL INMUTABLE! 🗿`
+      : v.ghost
+        ? "No era el Inmutable… y no sabremos qué alma tenía adentro hasta el final. La partida sigue."
+        : `Adentro estaba ${mind?.name}. Era un cambiante 😬`;
   } else {
     headline = "No se sacó a nadie";
     sub = v.reason === "tie" ? "Hubo empate." : v.reason === "skip" ? "Ganó ⏭ Omitir." : "Nadie votó.";

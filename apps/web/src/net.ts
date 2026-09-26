@@ -48,7 +48,7 @@ export type Settings = {
   chatsPerNight: number; // 0 = auto
   earlyVote: boolean; voteSeconds: number; maxEjections: number; unmaskSame: boolean;
 };
-export type ReplyView = { id: string; body: string; text: string; likes: number };
+export type ReplyView = { id: string; body: string; text: string; likes: number; sus: number };
 export type PostView = ReplyView & { replies: ReplyView[] };
 export type StateView = {
   phase: Phase;
@@ -66,7 +66,8 @@ export type StateView = {
   settings: Settings;
   players: Record<string, PlayerView>;
 };
-export type ChatMsg = { fromBody: string; real: boolean; tag: string; text: string; ts: number };
+export type Quote = { id: string; body: string; text: string };
+export type ChatMsg = { fromBody: string; real: boolean; tag: string; text: string; ts: number; quote?: Quote };
 export type DmMsg = { fromBody: string; text: string; ts: number; withBody: string };
 export type RoundResult = {
   mindId: string;
@@ -96,9 +97,22 @@ export type Verdict = {
   mindId?: string;
   wasSame?: boolean;
   wasImmutable?: boolean;
+  ghost?: boolean; // Inmutables, votación intermedia: salió un cambiante y no se revela qué alma tenía
   tally?: Record<string, number>;
   winner?: "changers" | "immutable";
 };
+
+/** Espectadores: quién chatea con quién esta noche (por cuerpo), sin el contenido. */
+export type ChatEdge = { a: string; b: string; count: number; last: number };
+
+/**
+ * Mentes que siguen en juego. Se cuenta por cuerpos: un cuerpo expulsado como fantasma no marca
+ * públicamente a su mente como `out`, pero siempre hay tantas mentes activas como cuerpos en juego.
+ */
+export const activeCount = (players: PlayerView[]) => players.filter((p) => !p.bodyOut).length;
+/** Fantasmas: mentes expulsadas que todavía no se revelaron. */
+export const ghostCount = (players: PlayerView[]) =>
+  players.filter((p) => p.bodyOut).length - players.filter((p) => p.out).length;
 
 export const MODES: Record<Mode, { icon: string; label: string; desc: string; family: "guess" | "immutable" }> = {
   classic: { icon: "🎲", label: "Clásico", desc: "Cambian algunos (siempre quedan 2 en su cuerpo). Nadie sabe cuántos.", family: "guess" },

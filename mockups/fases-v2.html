@@ -1,0 +1,1344 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MindSwap · Propuesta v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Nunito:wght@600;800&display=swap" rel="stylesheet" />
+<style>
+/* =====================================================================
+   MOCKUP v2. No toca el juego. v1 sigue en fases-antes-despues.html.
+   ===================================================================== */
+:root {
+  --bg1: #7b2ff7; --bg2: #d6246e; --card: rgba(40, 10, 80, 0.55); --line: rgba(255, 255, 255, 0.18);
+  --text: #fff; --muted: rgba(255, 255, 255, 0.7); --accent: #5ee37a; --accent-d: #2fae4c;
+  --yellow: #ffd23d; --red: #ff3d5a; --ink: #2a0d4d;
+  /* X real (solo para el "Antes") */
+  --x-line: #2f3336; --x-text: #e7e9ea; --x-muted: #71767b; --x-blue: #1d9bf0;
+  /* Cotorra 🦜: identidad propia para El Hilo */
+  --k-bg: #130c24; --k-card: #1b1233; --k-line: #30264c; --k-text: #f1ecfa; --k-muted: #978daf;
+  --k-acc: #5ee37a; --k-acc-d: #2fae4c; --k-like: #ff4d8d; --k-sus: #ffd23d;
+}
+* { box-sizing: border-box; }
+html { background: #1a0838; }
+body { margin: 0; font-family: "Nunito", system-ui, sans-serif; color: var(--text); min-height: 100vh; background: linear-gradient(135deg, #2a0d4d, #4a1580); background-attachment: fixed; overflow-x: hidden; }
+h1, h2, h3, .btn, .lilita { font-family: "Lilita One", sans-serif; font-weight: 400; letter-spacing: 0.5px; }
+button { font: inherit; }
+code { background: rgba(0, 0, 0, 0.3); padding: 0 5px; border-radius: 5px; font-size: 0.9em; }
+
+/* ---------- página ---------- */
+.page { max-width: 1400px; margin: 0 auto; padding: 20px 16px 60px; }
+.hero { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; justify-content: space-between; margin-bottom: 10px; }
+.hero h1 { margin: 0; font-size: clamp(28px, 5vw, 44px); text-shadow: 0 4px 0 var(--ink); transform: rotate(-1.5deg); }
+.hero h1 span { color: var(--yellow); }
+.hero p { margin: 4px 0 0; color: var(--muted); max-width: 680px; }
+.hero-side { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+.warn { background: var(--yellow); color: var(--ink); font-weight: 800; padding: 8px 14px; border-radius: 14px; box-shadow: 0 4px 0 #b8901a; font-size: 14px; }
+.v1link { color: var(--yellow); font-weight: 800; font-size: 14px; }
+.changelog { background: rgba(0, 0, 0, 0.22); border: 2px dashed var(--line); border-radius: 18px; padding: 10px 16px; margin: 8px 0 0; }
+.changelog summary { cursor: pointer; font-weight: 800; }
+.changelog ul { margin: 8px 0 2px; padding-left: 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 24px; }
+@media (max-width: 860px) { .changelog ul { grid-template-columns: 1fr; } }
+.changelog li { font-size: 14px; }
+.nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; position: sticky; top: 0; z-index: 20; padding: 10px 0; background: linear-gradient(#2a0d4d 70%, transparent); }
+.nav button { font-weight: 800; font-size: 14px; padding: 8px 14px; border-radius: 999px; cursor: pointer; border: 2px solid var(--line); background: rgba(255, 255, 255, 0.08); color: #fff; transition: transform 0.1s; }
+.nav button:hover { transform: translateY(-2px); }
+.nav button.on { background: var(--yellow); color: var(--ink); border-color: #fff; }
+.nav .sep { width: 2px; background: var(--line); margin: 0 4px; }
+.nav .extra { border-style: dashed; }
+.panel { display: none; }
+.panel.on { display: block; animation: pop 0.4s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+.panel-head h2 { margin: 0 0 4px; font-size: 28px; }
+.panel-head p { margin: 0 0 14px; color: var(--muted); max-width: 940px; }
+.compare { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+@media (max-width: 980px) { .compare { grid-template-columns: 1fr; } }
+.col-label { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-family: "Lilita One", sans-serif; font-size: 20px; flex-wrap: wrap; }
+.col-label .pill { font-family: "Nunito"; font-weight: 800; font-size: 12px; padding: 2px 10px; border-radius: 999px; }
+.pill.before { background: rgba(255, 255, 255, 0.15); }
+.pill.after { background: var(--accent); color: #1b3d1f; }
+.pill.alt { background: var(--yellow); color: var(--ink); }
+.notes { display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px; margin-top: 16px; }
+@media (max-width: 980px) { .notes { grid-template-columns: 1fr; } }
+.note { background: rgba(0, 0, 0, 0.22); border: 2px solid var(--line); border-radius: 18px; padding: 14px 16px; }
+.note h3 { margin: 0 0 8px; font-size: 18px; }
+.note h3 + ul { margin-bottom: 10px; }
+.note ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.note li { line-height: 1.35; }
+.note li b { color: var(--yellow); }
+.note p { line-height: 1.4; }
+.keep { color: #b8f5c6; } .drop { color: #ffc0ca; text-decoration: line-through; opacity: 0.8; } .later { color: #ffe9a3; }
+.tag { display: inline-block; font-size: 11px; font-weight: 800; padding: 1px 8px; border-radius: 999px; margin-left: 4px; vertical-align: 1px; }
+.tag.front { background: rgba(94, 227, 122, 0.25); color: #b8f5c6; }
+.tag.server { background: rgba(255, 61, 90, 0.25); color: #ffc0ca; }
+.tag.later { background: rgba(255, 210, 61, 0.22); color: #ffe9a3; }
+.tag.new { background: var(--yellow); color: var(--ink); }
+
+/* ---------- marco de pantalla ---------- */
+.screen { position: relative; height: 720px; border-radius: 22px; overflow: hidden; border: 3px solid var(--line); display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); background: linear-gradient(135deg, var(--bg1), var(--bg2)); }
+.screen.night { background: linear-gradient(135deg, #0d0b2e, #2b1760); }
+.screen.xthread { background: linear-gradient(135deg, #0f1419, #1d2a3a); }
+.screen.kthread { background: linear-gradient(160deg, #130c24, #24123f); }
+.screen-body { flex: 1; min-height: 0; padding: 12px; display: flex; flex-direction: column; position: relative; z-index: 1; }
+.top { position: relative; z-index: 2; display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 8px 12px; background: rgba(20, 5, 45, 0.7); border-bottom: 3px solid var(--line); }
+.top-left { display: flex; gap: 8px; align-items: center; font-size: 17px; }
+.phase-label { font-family: "Lilita One", sans-serif; }
+.timer { background: #fff; color: var(--ink); border-radius: 999px; padding: 1px 10px; font-weight: 800; font-size: 15px; }
+.secret { font-size: 12px; display: flex; gap: 6px; align-items: center; background: var(--yellow); color: var(--ink); border: none; border-radius: 12px; padding: 4px 10px; box-shadow: 0 3px 0 #b8901a; font-weight: 800; }
+.stars { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
+.stars i { position: absolute; background: #fff; border-radius: 50%; animation: twinkle 3s ease-in-out infinite; }
+
+/* ---------- animaciones ---------- */
+@keyframes pop { from { opacity: 0; transform: scale(0.6) translateY(12px); } 70% { transform: scale(1.06); } }
+@keyframes bob { 0%, 100% { transform: translateY(0) rotate(-3deg); } 50% { transform: translateY(-6px) rotate(3deg); } }
+@keyframes twinkle { 0%, 100% { opacity: 0.2; transform: scale(0.6); } 50% { opacity: 1; transform: scale(1); } }
+@keyframes slideIn { from { opacity: 0; transform: translateY(14px); } }
+@keyframes dots { 0%, 80%, 100% { transform: translateY(0); opacity: 0.4; } 40% { transform: translateY(-4px); opacity: 1; } }
+@keyframes heart { 0% { transform: translate(0, 0) scale(0.4); opacity: 1; } 100% { transform: translate(var(--dx), -140px) scale(1.4); opacity: 0; } }
+@keyframes glow { 50% { box-shadow: 0 0 0 3px rgba(255, 210, 61, 0.55), 0 0 18px rgba(255, 210, 61, 0.45); } }
+@keyframes hop { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+@keyframes pulse { 50% { opacity: 0.5; transform: scale(0.95); } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; } }
+
+/* ---------- juego actual (ANTES) ---------- */
+.avatar { display: inline-grid; place-items: center; border-radius: 50%; flex-shrink: 0; overflow: hidden; border: 3px solid #fff; box-shadow: 0 3px 0 rgba(0, 0, 0, 0.25); }
+.avatar img { width: 88%; height: 88%; display: block; }
+.card { background: var(--card); border: 3px solid var(--line); border-radius: 22px; padding: 14px; backdrop-filter: blur(6px); }
+.muted { color: var(--muted); font-size: 14px; }
+.small { font-size: 12px; margin: 4px 0 0; }
+.center-text { text-align: center; margin: auto; }
+input.g { font: inherit; font-size: 15px; padding: 9px 12px; border-radius: 12px; border: 3px solid #fff; background: rgba(255, 255, 255, 0.95); color: var(--ink); width: 100%; outline: none; }
+input.g:focus { box-shadow: 0 0 0 4px rgba(255, 210, 61, 0.6); }
+.btn { font-size: 16px; padding: 8px 14px; border: none; border-radius: 14px; cursor: pointer; color: #1b3d1f; background: var(--accent); box-shadow: 0 5px 0 var(--accent-d); }
+.btn:disabled { opacity: 0.5; }
+.chat { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.chat-head { padding-bottom: 8px; border-bottom: 2px solid var(--line); margin-bottom: 8px; }
+.msgs { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 4px; }
+.msg { display: flex; gap: 8px; align-items: flex-end; max-width: 85%; }
+.msg.mine { align-self: flex-end; flex-direction: row-reverse; }
+.bubble { background: #fff; color: var(--ink); padding: 7px 11px; border-radius: 16px 16px 16px 4px; word-break: break-word; box-shadow: 0 3px 0 rgba(0, 0, 0, 0.2); font-size: 15px; }
+.msg.mine .bubble { background: var(--yellow); border-radius: 16px 16px 4px 16px; }
+.who { font-size: 12px; font-weight: 800; filter: brightness(0.7); }
+.sys { align-self: center; font-family: "Lilita One", sans-serif; background: rgba(255, 255, 255, 0.15); padding: 3px 12px; border-radius: 999px; }
+.composer { display: flex; gap: 8px; margin-top: 10px; }
+.split { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 10px; flex: 1; min-height: 0; }
+.nightg { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 10px; flex: 1; min-height: 0; }
+.tabs { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; }
+.tab { font-weight: 800; display: flex; align-items: center; gap: 8px; background: rgba(255, 255, 255, 0.08); color: #fff; border: 2px solid transparent; padding: 6px; border-radius: 12px; text-align: left; font-size: 13px; }
+.tab.on { border-color: var(--yellow); background: rgba(255, 210, 61, 0.15); }
+.tab-state { margin-left: auto; font-size: 10px; color: var(--muted); }
+.dot { background: var(--red); border-radius: 999px; padding: 0 7px; font-size: 11px; }
+.quota { text-align: center; background: linear-gradient(135deg, #6c7bff, #b36bff); border: 3px solid #fff; border-radius: 16px; padding: 8px; box-shadow: 0 5px 0 rgba(0, 0, 0, 0.3); font-size: 13px; }
+.quota-title { font-family: "Lilita One", sans-serif; font-size: 15px; }
+.quota-dots { font-size: 20px; }
+.quota-dots span { display: inline-block; filter: grayscale(1) opacity(0.3); }
+.quota-dots span.on { filter: none; animation: bob 1.8s ease-in-out infinite; }
+.question { max-width: 560px; width: 100%; margin: auto; display: flex; flex-direction: column; gap: 12px; text-align: center; }
+.q-label { font-family: "Lilita One", sans-serif; letter-spacing: 2px; color: var(--yellow); }
+.q-text { font-size: 30px; margin: 0; line-height: 1.1; text-shadow: 0 4px 0 var(--ink); }
+.q-compose { display: flex; gap: 10px; align-items: flex-start; text-align: left; }
+.q-compose textarea { flex: 1; font: inherit; font-size: 16px; padding: 10px; border-radius: 16px; border: 3px solid #fff; resize: none; background: rgba(255, 255, 255, 0.95); color: var(--ink); }
+.q-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.threadg { width: 100%; max-width: 620px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; background: #000; border-color: #2f3336; flex: 1; min-height: 0; }
+.thread-q { font-family: "Lilita One", sans-serif; font-size: 17px; background: rgba(29, 155, 240, 0.15); border: 2px solid #1d9bf0; border-radius: 14px; padding: 6px 10px; }
+.thread-progress { display: flex; align-items: center; gap: 5px; }
+.thread-progress span { width: 10px; height: 10px; border-radius: 50%; background: #2f3336; }
+.thread-progress span.done { background: #1d9bf0; }
+.thread-progress span.on { background: var(--yellow); transform: scale(1.4); }
+.thread-progress b { margin-left: auto; font-size: 13px; color: #71767b; }
+.thread-bar { height: 4px; background: #2f3336; border-radius: 999px; overflow: hidden; }
+.thread-bar div { height: 100%; background: #1d9bf0; width: 60%; }
+.xpost { display: flex; gap: 10px; text-align: left; }
+.xpost.big { padding: 10px 0; border-bottom: 1px solid #2f3336; }
+.xmain { flex: 1; min-width: 0; }
+.xhead { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.xhead b { color: #e7e9ea; }
+.xverified { background: #1d9bf0; color: #fff; border-radius: 50%; width: 16px; height: 16px; font-size: 10px; display: inline-grid; place-items: center; }
+.xhandle { color: #71767b; font-size: 13px; }
+.xtext { color: #e7e9ea; word-break: break-word; margin: 2px 0 6px; font-size: 15px; }
+.xpost.big .xtext { font-size: 20px; line-height: 1.3; }
+.xactions { display: flex; gap: 18px; color: #71767b; font-size: 13px; align-items: center; }
+.xreplies { flex: 1; overflow-y: auto; display: flex; flex-direction: column; min-height: 0; }
+.xreply { padding: 8px 0 8px 16px; border-bottom: 1px solid #2f3336; border-left: 2px solid #2f3336; }
+.xreply.mine { border-left-color: var(--yellow); }
+.threadg .composer input { background: #16181c; color: #e7e9ea; border-color: #2f3336; }
+.threadg .composer .btn { background: #1d9bf0; color: #fff; box-shadow: 0 5px 0 #0c6bab; }
+.answers { display: flex; flex-direction: column; gap: 8px; background: rgba(0, 0, 0, 0.55); min-height: 0; }
+.answers-list { overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+.answers .xpost { background: rgba(255, 255, 255, 0.05); padding: 8px; border-radius: 14px; }
+
+/* =====================================================================
+   v2 — piezas nuevas
+   ===================================================================== */
+
+/* ---- menciones (@) compartidas ---- */
+.mention { font-weight: 800; border-radius: 6px; padding: 0 3px; }
+.cmp-wrap { position: relative; flex: 1; display: flex; }
+.at-pop { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 5; min-width: 200px; background: #fff; color: var(--ink); border-radius: 14px; padding: 4px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); display: none; animation: pop 0.25s both; }
+.at-pop.on { display: block; }
+.at-pop .hint { font-size: 11px; font-weight: 800; color: #7a5ba8; padding: 4px 8px; }
+.at-pop button { display: flex; width: 100%; align-items: center; gap: 8px; border: none; background: none; padding: 5px 8px; border-radius: 10px; cursor: pointer; font-weight: 800; color: var(--ink); text-align: left; }
+.at-pop button:hover, .at-pop button.sel { background: #f0e8ff; }
+.at-pop button small { color: #7a5ba8; font-weight: 600; margin-left: auto; }
+.at-pop .avatar { border-width: 2px; }
+.dark-pop .at-pop { background: var(--k-card); color: var(--k-text); border: 1px solid var(--k-line); }
+.dark-pop .at-pop button { color: var(--k-text); }
+.dark-pop .at-pop button:hover, .dark-pop .at-pop button.sel { background: #2a1f46; }
+.dark-pop .at-pop .hint, .dark-pop .at-pop button small { color: var(--k-muted); }
+
+/* ---- 1. Noche ---- */
+.n-night { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 10px; flex: 1; min-height: 0; }
+.n-inbox { display: flex; flex-direction: column; gap: 4px; background: rgba(10, 8, 40, 0.6); border: 2px solid rgba(160, 140, 255, 0.25); border-radius: 20px; padding: 10px; overflow-y: auto; }
+.n-inbox h4 { margin: 2px 0 0; font-family: "Lilita One"; font-weight: 400; font-size: 16px; display: flex; justify-content: space-between; align-items: center; }
+.n-inbox h4 small { font-family: Nunito; font-size: 11px; color: var(--muted); }
+.v2quota { text-align: center; background: linear-gradient(135deg, #6c7bff, #b36bff); border: 3px solid #fff; border-radius: 16px; padding: 6px 8px 7px; box-shadow: 0 4px 0 rgba(0, 0, 0, 0.3); margin-bottom: 6px; }
+.v2quota .t { font-family: "Lilita One"; font-size: 14px; }
+.v2quota .d { font-size: 24px; line-height: 1.15; }
+.v2quota .d span { display: inline-block; filter: grayscale(1) opacity(0.3); transition: filter 0.3s; }
+.v2quota .d span.on { filter: none; animation: bob 1.8s ease-in-out infinite; }
+.v2quota .d span:nth-child(2) { animation-delay: 0.2s; } .v2quota .d span:nth-child(3) { animation-delay: 0.4s; }
+.v2quota b { font-size: 14px; }
+.v2quota p { margin: 0; font-size: 11px; opacity: 0.9; }
+.n-row { display: flex; gap: 8px; align-items: center; padding: 7px; border-radius: 14px; cursor: pointer; border: 2px solid transparent; transition: background 0.15s, transform 0.1s; position: relative; background: none; color: #fff; text-align: left; width: 100%; }
+.n-row:hover { background: rgba(255, 255, 255, 0.06); transform: translateX(2px); }
+.n-row.on { background: rgba(179, 107, 255, 0.22); border-color: rgba(179, 107, 255, 0.6); }
+.n-row.incoming { animation: glow 1.8s ease-in-out infinite; border-color: rgba(255, 210, 61, 0.6); }
+.n-row .meta { min-width: 0; flex: 1; }
+.n-row .nm, .n-row .pv { display: block; }
+.n-row .nm { font-weight: 800; font-size: 13px; display: flex; justify-content: space-between; gap: 4px; }
+.n-row .nm small { color: var(--muted); font-weight: 600; font-size: 10px; }
+.n-row .pv { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.n-row.incoming .pv, .n-row .pv.unread { color: #fff; font-weight: 800; }
+.n-badge { background: var(--red); border-radius: 999px; padding: 0 6px; font-size: 11px; font-weight: 800; }
+.n-av { position: relative; }
+.n-av .online { position: absolute; right: -1px; bottom: -1px; width: 11px; height: 11px; border-radius: 50%; background: var(--accent); border: 2px solid #15103a; }
+.n-dm { display: flex; flex-direction: column; min-height: 0; background: rgba(10, 8, 40, 0.5); border: 2px solid rgba(160, 140, 255, 0.25); border-radius: 20px; overflow: hidden; }
+.n-dm-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: rgba(255, 255, 255, 0.05); border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+.n-dm-head b { display: block; font-size: 15px; }
+.n-dm-head span { font-size: 11px; color: var(--muted); }
+.n-dm-head .moon { margin-left: auto; font-size: 22px; animation: bob 3s ease-in-out infinite; }
+.n-msgs { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 3px; }
+.n-day { align-self: center; font-size: 11px; color: var(--muted); margin: 4px 0 8px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; text-align: center; }
+.n-b { max-width: 78%; padding: 7px 12px; border-radius: 18px; font-size: 14.5px; line-height: 1.3; animation: slideIn 0.3s both; word-break: break-word; }
+.n-b.them { align-self: flex-start; background: #2c2560; border-bottom-left-radius: 6px; }
+.n-b.me { align-self: flex-end; background: linear-gradient(135deg, #8a3dff, #d6246e); border-bottom-right-radius: 6px; }
+.n-b.them + .n-b.them { border-top-left-radius: 6px; }
+.n-b.me + .n-b.me { border-top-right-radius: 6px; }
+.n-gap { height: 8px; }
+.n-seen { align-self: flex-end; font-size: 10px; color: var(--muted); margin-top: 2px; }
+.n-typing { align-self: flex-start; background: #2c2560; border-radius: 18px; padding: 10px 14px; display: flex; gap: 4px; margin-top: 6px; }
+.n-typing i { width: 7px; height: 7px; border-radius: 50%; background: #fff; animation: dots 1.2s infinite; }
+.n-typing i:nth-child(2) { animation-delay: 0.15s; } .n-typing i:nth-child(3) { animation-delay: 0.3s; }
+.n-comp { display: flex; gap: 8px; align-items: center; padding: 10px; border-top: 1px solid rgba(255, 255, 255, 0.1); }
+.n-comp .field { flex: 1; display: flex; align-items: center; gap: 8px; background: rgba(255, 255, 255, 0.08); border: 2px solid rgba(255, 255, 255, 0.15); border-radius: 999px; padding: 4px 6px 4px 4px; }
+.n-comp input { flex: 1; border: none; background: none; color: #fff; font: inherit; font-size: 14px; outline: none; min-width: 0; }
+.n-comp input::placeholder { color: rgba(255, 255, 255, 0.5); }
+.n-send { width: 38px; height: 38px; border-radius: 50%; border: none; cursor: pointer; font-size: 16px; background: var(--yellow); color: var(--ink); box-shadow: 0 3px 0 #b8901a; flex-shrink: 0; }
+.n-room { align-self: center; font-size: 12px; font-weight: 800; background: rgba(255, 255, 255, 0.08); border: 1px dashed rgba(255, 255, 255, 0.25); padding: 4px 12px; border-radius: 999px; margin-bottom: 8px; text-align: center; }
+
+/* ---- 2. Día (plano) ---- */
+.n-day-wrap { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 10px; flex: 1; min-height: 0; }
+.n-group { display: flex; flex-direction: column; min-height: 0; background: rgba(40, 10, 80, 0.5); border: 3px solid var(--line); border-radius: 22px; overflow: hidden; }
+.n-g-head { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: rgba(0, 0, 0, 0.2); }
+.n-g-head > div > b { font-family: "Lilita One"; font-weight: 400; font-size: 17px; display: block; }
+.n-g-head > div > span { font-size: 11px; color: var(--muted); }
+.n-stack { display: flex; }
+.n-stack .avatar { margin-left: -10px; } .n-stack .avatar:first-child { margin-left: 0; }
+.n-pin { display: flex; gap: 8px; align-items: center; margin: 8px 10px 0; padding: 6px 10px; border-radius: 12px; background: rgba(255, 210, 61, 0.16); border: 2px solid rgba(255, 210, 61, 0.55); font-size: 13px; font-weight: 800; }
+.n-gmsgs { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 3px; }
+.n-gm { display: flex; gap: 8px; align-items: flex-end; max-width: 86%; animation: slideIn 0.3s both; }
+.n-gm.mine { align-self: flex-end; flex-direction: row-reverse; }
+.n-gm .spacer { width: 30px; flex-shrink: 0; }
+.n-gm.first { margin-top: 8px; }
+/* plano: sin sombra, sin franja; mismas esquinas agrupadas que el privado */
+.f-b { padding: 7px 12px; border-radius: 18px; font-size: 14.5px; line-height: 1.3; word-break: break-word; background: rgba(20, 5, 45, 0.55); color: #fff; }
+.n-gm:not(.mine) .f-b { border-bottom-left-radius: 6px; }
+.n-gm:not(.mine):not(.first) .f-b { border-top-left-radius: 6px; }
+.n-gm.mine .f-b { background: var(--yellow); color: var(--ink); border-bottom-right-radius: 6px; }
+.n-gm.mine:not(.first) .f-b { border-top-right-radius: 6px; }
+.f-b .who { font-size: 12px; font-weight: 800; filter: none; margin-bottom: 1px; }
+.f-b .mention { background: rgba(255, 210, 61, 0.2); color: var(--yellow); }
+.n-gm.mine .f-b .mention { background: rgba(42, 13, 77, 0.12); color: #6c2bd9; }
+.f-b .mention.me { background: var(--yellow); color: var(--ink); }
+.k-quote { display: block; background: rgba(255, 255, 255, 0.08); border-left: 3px solid var(--k-acc); border-radius: 8px; padding: 4px 8px; margin: 2px 0 5px; font-size: 12px; }
+.n-gm.mine .k-quote { background: rgba(42, 13, 77, 0.1); border-left-color: #2fae4c; }
+.k-quote .lg { font-weight: 900; margin-right: 4px; }
+.n-gcomp { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 6px; }
+.n-gcomp .row { display: flex; gap: 8px; }
+.n-qchip { display: none; align-items: center; gap: 6px; font-size: 12px; background: rgba(94, 227, 122, 0.18); border: 2px solid var(--k-acc); border-radius: 10px; padding: 3px 8px; }
+.n-qchip.on { display: flex; animation: pop 0.3s both; }
+.n-qchip button { margin-left: auto; background: none; border: none; color: #fff; cursor: pointer; }
+.n-side { display: flex; flex-direction: column; gap: 8px; min-height: 0; background: rgba(19, 12, 36, 0.8); border: 3px solid var(--line); border-radius: 22px; padding: 10px; }
+.n-side h4 { margin: 0; font-family: "Lilita One"; font-weight: 400; font-size: 15px; color: var(--k-acc); }
+.n-side .list { overflow-y: auto; display: flex; flex-direction: column; gap: 7px; }
+.n-mini { display: flex; gap: 8px; background: var(--k-card); border: 1px solid var(--k-line); border-radius: 14px; padding: 8px; }
+.n-mini .t { font-size: 13.5px; color: var(--k-text); margin: 1px 0 4px; }
+.n-mini .h { font-size: 12px; color: var(--k-muted); }
+.n-mini .h b { color: var(--k-text); }
+.n-mini .acts { display: flex; gap: 10px; font-size: 12px; color: var(--k-muted); align-items: center; }
+.n-mini .cite { margin-left: auto; font-weight: 800; font-size: 11px; background: var(--k-acc); color: #103a1a; border: none; border-radius: 999px; padding: 2px 9px; cursor: pointer; white-space: nowrap; }
+.n-hot { font-size: 10px; font-weight: 800; background: var(--k-like); color: #fff; border-radius: 999px; padding: 0 6px; }
+
+/* ---- Cotorra 🦜 (identidad propia, reemplaza el look de X) ---- */
+.k-app { display: flex; align-items: center; gap: 6px; font-family: "Lilita One"; font-size: 18px; color: var(--k-acc); }
+.k-app small { font-family: Nunito; font-weight: 800; font-size: 11px; color: var(--k-muted); }
+.k-post { display: flex; gap: 10px; text-align: left; }
+.k-main { flex: 1; min-width: 0; }
+.k-head { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.k-head b { color: var(--k-text); }
+.k-badge { display: inline-grid; place-items: center; width: 17px; height: 17px; border-radius: 6px; background: var(--k-sus); color: var(--ink); font-size: 10px; transform: rotate(8deg); }
+.k-handle { color: var(--k-muted); font-size: 13px; }
+.k-text { color: var(--k-text); word-break: break-word; margin: 2px 0 6px; font-size: 15px; }
+.k-acts { display: flex; gap: 6px; color: var(--k-muted); font-size: 13px; align-items: center; flex-wrap: wrap; }
+.k-act { background: none; border: none; color: var(--k-muted); cursor: pointer; font-size: 13px; padding: 3px 9px; border-radius: 999px; display: inline-flex; gap: 5px; align-items: center; }
+.k-act:hover { background: rgba(255, 77, 141, 0.12); color: var(--k-like); }
+.k-act.liked { color: var(--k-like); }
+.k-act.sus:hover, .k-act.sus.on { background: rgba(255, 210, 61, 0.12); color: var(--k-sus); }
+.k-act.rep:hover { background: rgba(94, 227, 122, 0.12); color: var(--k-acc); }
+.k-box { background: var(--k-bg); border: 1px solid var(--k-line); border-radius: 20px; }
+.k-btn { font-family: "Lilita One"; font-size: 16px; letter-spacing: 0.5px; background: var(--k-acc); color: #103a1a; border: none; border-radius: 999px; padding: 7px 18px; cursor: pointer; box-shadow: 0 4px 0 var(--k-acc-d); }
+.k-btn:disabled { opacity: 0.5; cursor: default; }
+.k-btn:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 2px 0 var(--k-acc-d); }
+.k-input { flex: 1; font: inherit; font-size: 15px; background: var(--k-card); color: var(--k-text); border: 2px solid var(--k-line); border-radius: 999px; padding: 8px 14px; outline: none; min-width: 0; }
+.k-input:focus { border-color: var(--k-acc); }
+.k-text .mention, .k-quote .mention { color: var(--k-acc); background: rgba(94, 227, 122, 0.12); }
+
+/* ---- 3. La Pregunta ---- */
+.n-q { max-width: 560px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; }
+.n-qhint { align-self: center; font-size: 13px; font-weight: 800; background: rgba(255, 210, 61, 0.14); border: 2px solid rgba(255, 210, 61, 0.5); color: var(--yellow); border-radius: 999px; padding: 4px 12px; text-align: center; }
+.n-xcard { background: var(--k-bg); border: 1px solid var(--k-line); border-radius: 18px; padding: 12px 14px; }
+.n-machine .k-text { font-size: 22px; line-height: 1.25; font-family: "Lilita One"; letter-spacing: 0.3px; }
+.n-machine .bot { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; font-size: 24px; background: linear-gradient(135deg, #7b2ff7, #d6246e); border: 3px solid #fff; flex-shrink: 0; }
+.n-replying { font-size: 13px; color: var(--k-muted); margin: 10px 0 4px 54px; }
+.n-replying b { color: var(--k-acc); font-weight: 800; }
+.n-compose { display: flex; gap: 10px; }
+.n-compose textarea { flex: 1; font: inherit; font-size: 19px; background: none; border: none; color: var(--k-text); resize: none; outline: none; min-height: 64px; }
+.n-compose textarea::placeholder { color: var(--k-muted); }
+.n-cfoot { display: flex; align-items: center; gap: 10px; border-top: 1px solid var(--k-line); padding-top: 10px; margin-left: 54px; }
+.n-cfoot .as { font-size: 12px; color: var(--k-muted); }
+.n-ring { margin-left: auto; width: 26px; height: 26px; }
+.n-ring circle { fill: none; stroke-width: 3; }
+.n-waiting { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--k-muted); justify-content: center; flex-wrap: wrap; }
+.n-waiting .w { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 10px; font-weight: 800; position: relative; }
+.n-waiting .w .ck { position: absolute; top: -4px; right: -4px; background: var(--accent); color: #1b3d1f; width: 16px; height: 16px; border-radius: 50%; font-size: 10px; display: grid; place-items: center; border: 2px solid var(--k-bg); }
+.n-waiting .w.pending .avatar { opacity: 0.45; }
+.n-waiting .w .typing { color: var(--k-acc); }
+
+/* ---- 4. El Hilo ---- */
+.n-th { max-width: 620px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; position: relative; }
+.n-seg { display: flex; gap: 4px; padding: 10px 12px 6px; }
+.n-seg span { flex: 1; height: 5px; border-radius: 999px; background: var(--k-line); overflow: hidden; }
+.n-seg span.done { background: var(--k-acc); }
+.n-seg span.on i { display: block; height: 100%; background: var(--yellow); width: 0; }
+.n-th-sub { display: flex; justify-content: space-between; align-items: center; padding: 0 12px 6px; font-size: 12px; color: var(--k-muted); gap: 8px; }
+.n-th-sub .q { color: var(--k-text); font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.n-th-sub .t { font-weight: 800; color: var(--yellow); }
+.n-main { padding: 6px 14px 4px; border-bottom: 1px solid var(--k-line); position: relative; }
+.n-main .k-text { font-size: 20px; line-height: 1.3; margin: 6px 0 6px; }
+.n-main .k-acts { justify-content: space-between; max-width: 440px; }
+.n-hearts { position: absolute; left: 50%; bottom: 20px; pointer-events: none; }
+.n-hearts span { position: absolute; font-size: 22px; animation: heart 1.1s ease-out forwards; }
+.n-replies { flex: 1; overflow-y: auto; min-height: 0; }
+.n-reply { display: flex; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--k-line); animation: slideIn 0.35s both; }
+.n-reply.mine { background: rgba(255, 210, 61, 0.05); box-shadow: inset 3px 0 0 var(--yellow); }
+.n-reply.top { background: rgba(255, 77, 141, 0.08); }
+.n-reply .k-text { margin: 1px 0 4px; }
+.n-reply .k-acts { margin-left: -9px; }
+.n-toptag { font-size: 10px; font-weight: 800; background: var(--k-like); color: #fff; border-radius: 999px; padding: 0 7px; }
+.n-typers { display: flex; align-items: center; gap: 6px; padding: 6px 14px; font-size: 12px; color: var(--k-muted); }
+.n-typers .n-typing { margin: 0; padding: 6px 9px; background: var(--k-card); }
+.n-typers .n-typing i { width: 5px; height: 5px; }
+.n-tcomp { display: flex; flex-direction: column; gap: 6px; padding: 8px 12px 12px; border-top: 1px solid var(--k-line); }
+.n-tcomp .row { display: flex; gap: 8px; align-items: center; }
+.n-target { font-size: 12px; color: var(--k-muted); }
+.n-target b { color: var(--k-acc); }
+
+/* ---- 5. Contrapropuesta X ---- */
+.brand-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.brand { background: var(--k-bg); border: 2px solid var(--k-line); border-radius: 16px; padding: 10px 12px; cursor: pointer; text-align: left; color: var(--k-text); transition: transform 0.1s, border-color 0.2s; }
+.brand:hover { transform: translateY(-2px); }
+.brand.on { border-color: var(--k-acc); box-shadow: 0 0 0 3px rgba(94, 227, 122, 0.25); }
+.brand b { font-family: "Lilita One"; font-weight: 400; font-size: 20px; display: block; }
+.brand small { color: var(--k-muted); font-size: 12px; }
+.feed-demo { display: flex; flex-direction: column; gap: 8px; }
+.risk-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.risk-table td, .risk-table th { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.risk-table th { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+
+/* ---- 6. Premisa: La Casa ---- */
+.sofa { margin: 8px 10px 0; padding: 8px 10px 0; border-radius: 16px 16px 0 0; background: linear-gradient(#0000, rgba(0, 0, 0, 0.18)); position: relative; }
+.sofa-seats { display: flex; justify-content: space-around; align-items: flex-end; position: relative; z-index: 1; }
+.seat { display: flex; flex-direction: column; align-items: center; gap: 1px; font-size: 10px; font-weight: 800; position: relative; }
+.seat.talking .avatar { animation: hop 0.6s ease-in-out infinite; box-shadow: 0 0 0 3px var(--yellow); }
+.seat .say { position: absolute; top: -14px; right: -12px; background: #fff; color: var(--ink); border-radius: 10px; padding: 0 5px; font-size: 11px; animation: pulse 1s infinite; }
+.seat.me span { color: var(--yellow); }
+.sofa-body { height: 16px; margin-top: -12px; background: linear-gradient(#b0427a, #8a2d5f); border-radius: 12px 12px 6px 6px; border: 2px solid rgba(255, 255, 255, 0.25); }
+.sys2 { align-self: center; font-size: 12px; font-weight: 800; background: rgba(0, 0, 0, 0.22); border-radius: 999px; padding: 3px 12px; margin: 6px 0; text-align: center; }
+.room-tag { font-size: 10px; font-weight: 800; background: rgba(255, 255, 255, 0.12); border-radius: 999px; padding: 0 6px; margin-left: 4px; white-space: nowrap; }
+.opt-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin-top: 16px; }
+.opt { background: rgba(0, 0, 0, 0.22); border: 2px solid var(--line); border-radius: 18px; padding: 12px 14px; }
+.opt.rec { border-color: var(--accent); }
+.opt h3 { margin: 0 0 6px; font-size: 19px; }
+.opt p { margin: 0 0 6px; font-size: 14px; line-height: 1.4; }
+.opt .map { font-size: 13px; display: grid; grid-template-columns: auto 1fr; gap: 3px 8px; background: rgba(0, 0, 0, 0.2); padding: 8px; border-radius: 12px; }
+.opt .map b { white-space: nowrap; }
+
+/* ---- 7. Voz ---- */
+.voice-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 18px; }
+@media (max-width: 980px) { .voice-grid { grid-template-columns: 1fr; } }
+.vtable { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.vtable th, .vtable td { padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.vtable th { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+.vtable tr.rec td:first-child { box-shadow: inset 4px 0 0 var(--accent); }
+.lab { background: linear-gradient(135deg, #0d0b2e, #2b1760); border: 3px solid var(--line); border-radius: 22px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.lab h3 { margin: 0; }
+.lab .row { display: flex; gap: 8px; flex-wrap: wrap; }
+.vbtn { font-weight: 800; border: 3px solid #fff; border-radius: 14px; padding: 8px 12px; cursor: pointer; background: rgba(255, 255, 255, 0.1); color: #fff; }
+.vbtn.on { background: var(--yellow); color: var(--ink); }
+.vbtn.stop { background: var(--red); }
+.meter { height: 10px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.meter div { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--yellow), var(--red)); transition: width 0.05s; }
+.lab .status { font-size: 13px; color: var(--muted); min-height: 18px; }
+.callmock { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.tile { aspect-ratio: 1; border-radius: 16px; background: rgba(255, 255, 255, 0.06); border: 2px solid var(--line); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 11px; font-weight: 800; position: relative; }
+.tile.speaking { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(94, 227, 122, 0.3); }
+.tile .wave { font-size: 10px; letter-spacing: 1px; color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="hero">
+    <div>
+      <h1>MindSwap · <span>Propuesta v2</span></h1>
+      <p>Incorpora tu feedback de la v1. Tú (Gabriel) estás en el cuerpo de <b>Sofía</b>. Todo lo que dice "Después" es interactivo: escribe <b>@</b> para etiquetar, cita, dale ❤️ o 🤨.</p>
+    </div>
+    <div class="hero-side">
+      <div class="warn">🧪 Mockup. No hay nada implementado en el juego.</div>
+      <a class="v1link" href="fases-antes-despues.html">← Ver la v1 (se conserva igual)</a>
+    </div>
+  </div>
+  <details class="changelog" open>
+    <summary>📝 Qué cambió desde la v1 (tu feedback)</summary>
+    <ul>
+      <li class="keep">🌙 Vuelve la tarjeta de cuota con los 💬💬💬, más chica.</li>
+      <li class="keep">🌙 Se mantienen el visto, el "escribiendo…", las vistas previas y el brillo cuando alguien te escribe.</li>
+      <li class="keep">☀️ Globos <b>planos</b>, como en el privado: sin sombra y sin franja de color.</li>
+      <li class="keep">☀️ @Etiquetar con autocompletado y citar posts del hilo.</li>
+      <li class="later">☀️ Reacciones a mensajes → para una fase 2, para no sobrecargar.</li>
+      <li class="keep">🦜 El look de X pasa a ser una marca propia: <b>Cotorra</b>. Ver la contrapropuesta.</li>
+      <li class="keep">❓ Escribir el hilo: queda todo igual que en la v1, con la nueva marca.</li>
+      <li class="keep">🦜 Responder el hilo: todo igual + @etiquetar. "Responder" ahora etiqueta al autor.</li>
+      <li class="later">🦜 Subhilos (respuestas a respuestas) → para más adelante.</li>
+      <li class="drop">Respuestas sugeridas</li>
+      <li class="drop">Premisas mecánicas (encuesta y captura filtrada)</li>
+      <li class="keep">🏠 Nueva: una premisa <b>narrativa</b> (por qué existe cada chat) + 🎙️ investigación de voz.</li>
+    </ul>
+  </details>
+
+  <nav class="nav" id="nav">
+    <button data-p="night" class="on">🌙 Chat privado</button>
+    <button data-p="day">☀️ Chat global</button>
+    <button data-p="question">❓ Escribir el hilo</button>
+    <button data-p="thread">🦜 Responder el hilo</button>
+    <span class="sep"></span>
+    <button data-p="brand" class="extra">🎨 Contrapropuesta a X</button>
+    <button data-p="premise" class="extra">🏠 Premisa narrativa</button>
+    <button data-p="voice" class="extra">🎙️ Investigación: voz</button>
+  </nav>
+
+  <!-- ============================ 1. NOCHE ============================ -->
+  <section class="panel on" id="p-night">
+    <div class="panel-head">
+      <h2>🌙 Chat privado (Noche)</h2>
+      <p>Se mantiene la bandeja de la v1 (vistas previas, brillo, visto, escribiendo), pero vuelve la <b>tarjeta de cuota</b> con los 💬 que te gustaban, en versión compacta.</p>
+    </div>
+    <div class="compare">
+      <div>
+        <div class="col-label">Antes <span class="pill before">hoy</span></div>
+        <div class="screen night" data-stars>
+          <div class="top"><div class="top-left"><span class="phase-label">🌙 Chat privado</span><span class="timer">1:12</span></div><span class="secret">🤫 Mente: Gabriel · Cuerpo: Sofía</span></div>
+          <div class="screen-body"><div class="nightg" id="nightBefore"></div></div>
+        </div>
+      </div>
+      <div>
+        <div class="col-label">Después <span class="pill after">v2</span></div>
+        <div class="screen night" data-stars>
+          <div class="top"><div class="top-left"><span class="phase-label">🌙 Chat privado</span><span class="timer">1:12</span></div><span class="secret">🤫 Mente: Gabriel · Cuerpo: Sofía</span></div>
+          <div class="screen-body"><div class="n-night" id="nightAfter"></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <div class="note"><h3>Qué hay</h3><ul>
+        <li>La <b>tarjeta de cuota</b> vuelve (el degradado morado y los 💬 que rebotan), un ~40 % más chica.<span class="tag front">solo front</span></li>
+        <li><b>Vista previa</b> del último mensaje y <b>brillo</b> si alguien te escribió y no has contestado.<span class="tag front">solo front</span></li>
+        <li>Globos propios de la noche, agrupados.<span class="tag front">solo front</span></li>
+        <li><b>"Escribiendo…"</b> y <b>"Visto ✓✓"</b>.<span class="tag server">eventos typing y seen</span></li>
+      </ul></div>
+      <div class="note"><h3>Cómo probarlo</h3><ul>
+        <li>Toca la fila de Lucía (brilla porque te escribió) o la de Vale (usa una ficha 💬).</li>
+        <li>Escribe y dale Enter: se quitan el "escribiendo" y el "visto".</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <!-- ============================ 2. DÍA ============================ -->
+  <section class="panel" id="p-day">
+    <div class="panel-head">
+      <h2>☀️ Chat global (Día)</h2>
+      <p>Globos <b>planos</b> con el mismo lenguaje que el privado, <b>@etiquetas</b> con autocompletado y <b>citas</b> de los posts del hilo. Las reacciones quedan para la fase 2.</p>
+    </div>
+    <div class="compare">
+      <div>
+        <div class="col-label">Antes <span class="pill before">hoy</span></div>
+        <div class="screen">
+          <div class="top"><div class="top-left"><span class="phase-label">☀️ Chat global</span><span class="timer">1:48</span></div><span class="secret">🤫 Mente: Gabriel · Cuerpo: Sofía</span></div>
+          <div class="screen-body"><div class="split" id="dayBefore"></div></div>
+        </div>
+      </div>
+      <div>
+        <div class="col-label">Después <span class="pill after">v2</span></div>
+        <div class="screen">
+          <div class="top"><div class="top-left"><span class="phase-label">☀️ Chat global</span><span class="timer">1:48</span></div><span class="secret">🤫 Mente: Gabriel · Cuerpo: Sofía</span></div>
+          <div class="screen-body"><div class="n-day-wrap" id="dayAfter"></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <div class="note"><h3>Qué hay</h3><ul>
+        <li><b>Globos planos</b>: sin sombra ni franja. Oscuros translúcidos para los demás y amarillo para ti, con el nombre en el color del cuerpo. Los seguidos se agrupan con esquinas como en el privado.<span class="tag front">solo front</span></li>
+        <li><b>@Etiquetar</b>: al escribir "@" sale la lista de cuerpos. Si te etiquetan a ti, la mención se ve en amarillo sólido.<span class="tag front">solo front, se parsea el texto</span></li>
+        <li><b>↩ Citar</b> un post de Cotorra: el mensaje sale con la cita arriba.<span class="tag server">el mensaje lleva un quoteId</span></li>
+        <li>La pregunta fijada 📌 y los posts ordenados por ❤️ con la etiqueta 🔥.<span class="tag front">solo front</span></li>
+      </ul></div>
+      <div class="note"><h3>Fase 2</h3><ul>
+        <li class="later">Reacciones a mensajes (😂 🤨): las diseñamos en la v1, pero se meten después de probar si citar y etiquetar ya bastan.</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <!-- ============================ 3. LA PREGUNTA ============================ -->
+  <section class="panel" id="p-question">
+    <div class="panel-head">
+      <h2>❓ Escribir el hilo (La Pregunta)</h2>
+      <p>Queda igual que en la v1 (La Máquina publica, tú respondes, anillo de caracteres, vista previa y quién ya publicó), pero con la marca propia <b>Cotorra 🦜</b> en vez del look de X.</p>
+    </div>
+    <div class="compare">
+      <div>
+        <div class="col-label">Antes <span class="pill before">hoy</span></div>
+        <div class="screen">
+          <div class="top"><div class="top-left"><span class="phase-label">❓ La Pregunta</span><span class="timer">0:38</span></div><span class="secret">🤫 Mente: Gabriel · Cuerpo: Sofía</span></div>
+          <div class="screen-body" id="qBefore"></div>
+        </div>
+      </div>
+      <div>
+        <div class="col-label">Después <span class="pill after">v2</span></div>
+        <div class="screen kthread">
+          <div class="top"><div class="top-left"><span class="phase-label">❓ La Pregunta</span><span class="timer">0:38</span></div><span class="secret">🤫 Mente: Gabriel · Cuerpo: Sofía</span></div>
+          <div class="screen-body" id="qAfter"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ 4. EL HILO ============================ -->
+  <section class="panel" id="p-thread">
+    <div class="panel-head">
+      <h2>🦜 Responder el hilo (El Hilo)</h2>
+      <p>Todo lo de la v1 (barra tipo historias, 🤨 Sus, ⭐ Top, corazones, escribiendo…) + <b>@etiquetar</b>. <b>Sin subhilos</b> por ahora: "💬 Responder" en una respuesta te pone su <b>@</b> en la caja de texto, así la conversación sigue plana pero dirigida. Sin respuestas sugeridas.</p>
+    </div>
+    <div class="compare">
+      <div>
+        <div class="col-label">Antes <span class="pill before">hoy</span></div>
+        <div class="screen xthread">
+          <div class="top"><div class="top-left"><span class="phase-label">🐦 El Hilo</span><span class="timer">0:18</span></div><span class="secret">🤫 Mente: Gabriel · Cuerpo: Sofía</span></div>
+          <div class="screen-body"><div class="card threadg" id="tBefore"></div></div>
+        </div>
+      </div>
+      <div>
+        <div class="col-label">Después <span class="pill after">v2 · en vivo</span></div>
+        <div class="screen kthread">
+          <div class="top"><div class="top-left"><span class="phase-label">🦜 El Hilo</span><span class="timer" id="tTimer">0:30</span></div><span class="secret">🤫 Mente: Gabriel · Cuerpo: Sofía</span></div>
+          <div class="screen-body"><div class="n-th k-box" id="tAfter"></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <div class="note"><h3>Qué hay</h3><ul>
+        <li><b>@Etiquetar</b> con autocompletado. "💬 Responder" en una reply pone su @ en la caja: da la sensación de conversación sin anidar.<span class="tag front">solo front</span></li>
+        <li><b>🤨 Sus</b> junto al ❤️.<span class="tag server">igual que los likes</span></li>
+        <li><b>⭐ Top</b> para la reply con más ❤️, <b>barra tipo historias</b> y <b>corazones flotantes</b>.<span class="tag front">solo front</span></li>
+        <li>"✍️ Fulano está escribiendo…"<span class="tag server">evento typing</span></li>
+      </ul></div>
+      <div class="note"><h3>Para más adelante</h3><ul>
+        <li class="later">Subhilos (respuestas anidadas de 1 nivel): diseñados en la v1.</li>
+        <li class="drop">Respuestas sugeridas.</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <!-- ============================ 5. CONTRAPROPUESTA X ============================ -->
+  <section class="panel" id="p-brand">
+    <div class="panel-head">
+      <h2>🎨 Contrapropuesta: una red social propia en vez de "X"</h2>
+      <p>La idea de "respondes y ves cómo reaccionan en una red social" es genérica y nadie es dueño de ella. Lo que sí tiene dueño es la <b>marca</b>: el nombre, el logo 𝕏 o el pájaro, el check azul y copiar la interfaz pixel por pixel. La propuesta es una red ficticia del universo del juego: <b>Cotorra 🦜</b>. Se reconoce al instante como "tipo Twitter" pero es nuestra, y además da más risa.</p>
+    </div>
+    <div class="compare">
+      <div>
+        <div class="col-label">v1 <span class="pill before">igual a X</span></div>
+        <div class="screen xthread" style="height:auto">
+          <div class="screen-body"><div class="card threadg" id="brandX" style="flex:none"></div></div>
+        </div>
+      </div>
+      <div>
+        <div class="col-label">v2 <span class="pill after">marca propia</span> <span id="brandName" class="pill alt">Cotorra 🦜</span></div>
+        <div class="screen kthread" style="height:auto">
+          <div class="screen-body"><div class="k-box" style="padding:12px 14px" id="brandK"></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <div class="note">
+        <h3>Qué cambia para que no sea X</h3>
+        <table class="risk-table">
+          <tr><th>Elemento</th><th>v1 (igual a X)</th><th>v2 (nuestro)</th></tr>
+          <tr><td>Nombre / logo</td><td>"estilo X", icono 𝕏, 🐦</td><td><b>Cotorra</b> + 🦜 (emoji genérico)</td></tr>
+          <tr><td>Verificado</td><td>Check azul redondo ✔</td><td>Sello amarillo ladeado ✦ (el de "La Máquina")</td></tr>
+          <tr><td>Colores</td><td>Negro #000 + azul #1d9bf0</td><td>Morado noche + verde y amarillo del juego</td></tr>
+          <tr><td>Métricas</td><td>💬 🔁 ❤️ 📊 (idénticas)</td><td>💬 cotorreos · ❤️ · 🤨 sus · 👀 chismosos</td></tr>
+          <tr><td>Vocabulario</td><td>post / tweet</td><td>"cotorreo", "cotorrear", "@lamaquina cotorreó"</td></tr>
+          <tr><td>Botón</td><td>Pastilla azul "Postear"</td><td>Botón del juego (Lilita, sombra) "Cotorrear"</td></tr>
+        </table>
+        <p class="muted" style="margin:10px 0 0">No es asesoría legal. En general, lo genérico (feed, avatar, @usuario, likes, hilos) no tiene dueño. El riesgo real está en usar el nombre, el logo o una copia exacta de la interfaz. Aparte: el repo también usa el nombre de la película ("it-whats-inside") y conviene tenerlo en cuenta si el juego se publica.</p>
+      </div>
+      <div class="note">
+        <h3>Otros nombres (toca para probar)</h3>
+        <div class="brand-grid" id="brandGrid"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ 6. PREMISA ============================ -->
+  <section class="panel" id="p-premise">
+    <div class="panel-head">
+      <h2>🏠 Premisa narrativa: ¿por qué existe cada chat?</h2>
+      <p>El Hilo funciona porque tiene una excusa clara: <i>"te hacen una pregunta, respóndela y mira cómo reaccionan"</i>. El Día y la Noche hoy son solo "chats". La propuesta es darles un <b>lugar</b> dentro de la fiesta de la película: la máquina llega en una maleta a una fiesta en una casa. Así cada fase es un <b>sitio de la casa</b> y la interfaz y los textos salen de ahí, sin tocar ninguna regla.</p>
+    </div>
+    <div class="compare">
+      <div>
+        <div class="col-label">☀️ Día → <span class="lilita">🛋️ La Sala</span> <span class="pill alt">opción A</span></div>
+        <div class="screen">
+          <div class="top"><div class="top-left"><span class="phase-label">🛋️ La Sala</span><span class="timer">1:48</span></div><span class="secret">🤫 Mente: Gabriel · Cuerpo: Sofía</span></div>
+          <div class="screen-body"><div class="n-group" id="salaDemo" style="flex:1"></div></div>
+        </div>
+      </div>
+      <div>
+        <div class="col-label">🌙 Noche → <span class="lilita">🚪 Los Cuartos</span> <span class="pill alt">opción A</span></div>
+        <div class="screen night" data-stars>
+          <div class="top"><div class="top-left"><span class="phase-label">🚪 Los Cuartos</span><span class="timer">1:12</span></div><span class="secret">🤫 Mente: Gabriel · Cuerpo: Sofía</span></div>
+          <div class="screen-body"><div class="n-night" id="cuartosDemo"></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <div class="note">
+        <h3>Opción A: "La Casa" (recomendada)</h3>
+        <ul>
+          <li><b>❓ + 🦜 La Pregunta / El Hilo</b> → "Todos sacan el celular": La Máquina cotorreó en <b>Cotorra</b> y la fiesta entera responde. Ya funciona así, solo se le pone nombre.</li>
+          <li><b>☀️ Día = 🛋️ La Sala.</b> Todos juntos en el sofá, hablando "en persona". Arriba hay un <b>sofá con los avatares</b> y el que está escribiendo <b>salta</b>, así se ve quién habla sin leer. Arriba queda "📌 El tema de la sala" y hay mensajes de ambiente de La Máquina ("Nadie sale de la sala hasta que caiga la noche").</li>
+          <li><b>🌙 Noche = 🚪 Los Cuartos.</b> Te llevas a alguien aparte a un cuarto de la casa. A cada conversación le toca uno al azar (🛁 baño, 🍳 cocina, 🌙 balcón, 🧺 lavandería, 🚗 garaje, 🧥 clóset…) con una frase de ambiente ("Entre la ropa sucia nadie los escucha"). La cuota se explica sola: <b>"Puedes llevarte aparte a 3 personas"</b>, y si alguien te jala a un cuarto, entras gratis.</li>
+          <li>Los letreros de fase salen de la misma narrativa: <b>"☀️ ¡Todos a la sala!"</b> / <b>"🌙 Cada quien a un cuarto…"</b>.</li>
+          <li>Costo: casi todo es texto y front. El sofá usa el mismo evento typing. El cuarto al azar sale de un hash del par de cuerpos, sin server.<span class="tag front">front + typing</span></li>
+        </ul>
+      </div>
+      <div class="note">
+        <h3>Extra opcional (sí es mecánica)</h3>
+        <ul>
+          <li class="later">Anunciar en La Sala "🚪 Alguien se encerró en el baño…" sin decir quién. Genera paranoia sin revelar nada. Se puede dejar para después.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="opt-cards">
+      <div class="opt rec">
+        <h3>🏠 A. La Casa</h3>
+        <p>Es la más fiel a la película y la más fácil de entender.</p>
+        <div class="map"><b>Hilo</b><span>🦜 Cotorra (el celular)</span><b>Día</b><span>🛋️ La Sala</span><b>Noche</b><span>🚪 Los Cuartos</span><b>Adivinanza</b><span>🧳 "Abran la maleta"</span></div>
+      </div>
+      <div class="opt">
+        <h3>📹 B. El Reality</h3>
+        <p>Todo es un reality show grabado. Da mucho juego visual (REC ●, cámaras) y la Noche es el lugar donde "crees" que nadie graba.</p>
+        <div class="map"><b>Hilo</b><span>📺 "Los comentarios del público"</span><b>Día</b><span>🎥 La Sala Común (● REC)</span><b>Noche</b><span>🎙️ Confesionario de a 2</span><b>Adivinanza</b><span>🗳️ La Gala</span></div>
+      </div>
+      <div class="opt">
+        <h3>💍 C. La Despedida</h3>
+        <p>La fiesta de la película es una pre-boda. Todo pasa en el celular: da risa, pero es menos "espacial" que la A.</p>
+        <div class="map"><b>Hilo</b><span>🦜 Cotorra</span><b>Día</b><span>💬 Grupo "Despedida 💍🥂"</span><b>Noche</b><span>🤫 DMs "no le digas a nadie"</span><b>Adivinanza</b><span>🥂 El brindis</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ 7. VOZ ============================ -->
+  <section class="panel" id="p-voice">
+    <div class="panel-head">
+      <h2>🎙️ Investigación: llamada con voz distorsionada</h2>
+      <p>Pregunta: ¿qué tan caro es una fase de <b>llamada</b> (grupal o privada) donde todos hablan con la <b>misma voz genérica distorsionada</b>? Respuesta corta: <b>barato en infraestructura</b> y <b>moderado en desarrollo</b>, si la distorsión se hace en el navegador. Abajo hay un laboratorio para probarlo con tu micrófono.</p>
+    </div>
+    <div class="voice-grid">
+      <div class="note">
+        <h3>3 formas de lograr "todos la misma voz"</h3>
+        <table class="vtable">
+          <tr><th>Opción</th><th>¿Misma voz?</th><th>Latencia</th><th>Infra</th><th>Desarrollo</th></tr>
+          <tr class="rec"><td><b>A. Vocoder robot en el navegador</b> + WebRTC<br><span class="muted">Web Audio API: los filtros toman la forma de tu voz y la "tocan" sobre un tono fijo. Todos quedan con el mismo tono y timbre robótico.</span></td><td>Casi. Se sigue notando el ritmo, el acento y la risa (eso es parte del juego).</td><td>Tiempo real (&lt;300 ms)</td><td>~$0 en 1 a 1 (P2P). Grupal: SFU</td><td>1 a 1: <b>3–5 días</b><br>Grupal: <b>+1–2 semanas</b></td></tr>
+          <tr><td><b>B. Walkie-talkie: voz → texto → voz</b><br><span class="muted">Se reconoce lo que dices, se manda texto por Colyseus y cada cliente lo lee con la misma voz sintética.</span></td><td><b>Sí, 100 %.</b> Nadie oye tu voz real.</td><td>1–3 s, por turnos (push-to-talk)</td><td>~$0 (texto por el WS que ya existe)</td><td><b>2–3 días</b></td></tr>
+          <tr><td><b>C. Conversión de voz con IA</b> (tipo RVC)<br><span class="muted">Un modelo convierte tu voz en una voz natural objetivo.</span></td><td>Sí, y suena natural</td><td>200–500 ms+ con GPU</td><td>GPU dedicada: caro para un juego gratis</td><td>Semanas</td></tr>
+        </table>
+
+        <h3 style="margin-top:14px">Costo de infraestructura (opción A)</h3>
+        <ul>
+          <li><b>Señalización:</b> se hace con Colyseus, que ya existe (intercambio de ofertas WebRTC). <b>$0.</b></li>
+          <li><b>Audio:</b> Opus ~24–32 kbps ≈ <b>11–14 MB por hora por persona</b>. La voz es casi gratis de transmitir.</li>
+          <li><b>Llamada privada 1 a 1 (Noche):</b> P2P directo, el audio no pasa por nuestro server. Solo hace falta <b>TURN</b> para el ~10–20 % de conexiones que no logran P2P (redes corporativas o de celular). Se puede montar un coturn propio en un VPS de ~$5–10/mes o usar un TURN administrado que cobra por GB.</li>
+          <li><b>Llamada grupal (Día, hasta 12):</b> con malla P2P cada quien envía 11 copias (~350 kbps de subida). Aguanta en PC pero sufre en celular. Lo sano es un <b>SFU</b>: LiveKit (open source, auto-hosteado) o un servicio administrado (LiveKit Cloud, Daily, Agora) que cobra por minuto-participante.</li>
+          <li><b>Orden de magnitud por partida grupal</b> (12 personas × 20 min por SFU): ≈ 0.6 GB de tráfico → <b>centavos de dólar por partida</b>.</li>
+          <li><b>⚠️ Render:</b> los web services de Render solo exponen HTTP/WebSocket (TCP). El audio WebRTC necesita <b>UDP</b>. El P2P no pasa por Render, así que funciona. Pero el <b>TURN y el SFU tienen que vivir en otro lado</b> (un VPS o un servicio administrado).</li>
+        </ul>
+        <p class="muted" style="margin:8px 0 0">Los precios son estimados de orden de magnitud: hay que verificar las tarifas actuales de cada proveedor antes de decidir.</p>
+
+        <h3 style="margin-top:14px">Riesgos</h3>
+        <ul>
+          <li><b>La distorsión debe hacerse en el emisor</b>, antes de enviar (<code>createMediaStreamDestination()</code> → WebRTC). Si se aplica en quien recibe, cualquiera con DevTools escucha la voz real y se rompe el juego.</li>
+          <li>Permiso de micrófono. En iOS Safari el audio necesita un toque del usuario para arrancar.</li>
+          <li>Eco: conviene usar audífonos. Se deja <code>echoCancellation</code> activado antes del efecto.</li>
+          <li>La opción B depende de <code>SpeechRecognition</code>: bien en Chrome y Edge (que mandan el audio a Google), parcial en Safari y sin soporte en Firefox. La alternativa es Whisper en el server, que cuesta por minuto.</li>
+        </ul>
+
+        <h3 style="margin-top:14px">Recomendación</h3>
+        <ul>
+          <li><b>Prototipo:</b> "🌙 Llamada nocturna", <b>1 a 1, P2P, vocoder A y push-to-talk</b>. Unos 3–5 días y casi $0 de infraestructura. Sirve para medir si es divertido antes de invertir en lo grupal.</li>
+          <li>Si funciona, pasar a <b>La Sala con voz</b> vía LiveKit.</li>
+          <li>La <b>B (walkie-talkie)</b> es el plan barato si se prioriza el anonimato total. Encaja con un juego de texto: sigue siendo por turnos.</li>
+        </ul>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div class="lab">
+          <h3>🧪 Laboratorio: prueba tu voz</h3>
+          <p class="muted" style="margin:0">🎧 <b>Usa audífonos</b> o habrá retroalimentación. Todo se procesa localmente: no se envía nada a ningún lado.</p>
+          <div class="row">
+            <button class="vbtn" data-mode="vocoder">🤖 Vocoder (misma voz)</button>
+            <button class="vbtn" data-mode="ring">👽 Ring-mod</button>
+            <button class="vbtn" data-mode="raw">🙂 Voz normal</button>
+            <button class="vbtn stop" id="vStop">⏹ Parar</button>
+          </div>
+          <label class="muted" style="display:flex;gap:8px;align-items:center">Tono del robot <input type="range" id="vPitch" min="60" max="220" value="110" style="flex:1"> <b id="vPitchV">110 Hz</b></label>
+          <div class="meter"><div id="vMeter"></div></div>
+          <div class="status" id="vStatus">Elige un efecto para empezar.</div>
+          <hr style="border:none;border-top:1px solid var(--line);width:100%">
+          <h3>📻 Opción B: la voz que oirían todos</h3>
+          <div class="row"><input class="g" id="ttsIn" value="yo no soy lucía, soy mateo" style="flex:1"><button class="vbtn" id="ttsGo">▶ Decir</button></div>
+          <p class="muted" style="margin:0">Usa la voz sintética del navegador con un tono fijo. En el juego, lo que dices se convertiría en texto y todos lo oirían así.</p>
+        </div>
+        <div class="lab">
+          <h3>Cómo se vería la fase</h3>
+          <div class="callmock" id="callMock"></div>
+          <p class="muted" style="margin:0">Sin video: solo avatares de los <b>cuerpos</b> que se iluminan al hablar. Así se mantiene el secreto de quién habita cada cuerpo.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+// ---------------- datos ----------------
+const P = {
+  sofia:  { n: "Sofía",  c: "#ff4d8d", s: "big-smile" },
+  gabriel:{ n: "Gabriel",c: "#3dd6ff", s: "adventurer" },
+  lucia:  { n: "Lucía",  c: "#ffd23d", s: "croodles" },
+  mateo:  { n: "Mateo",  c: "#5ee37a", s: "big-smile" },
+  vale:   { n: "Vale",   c: "#b36bff", s: "adventurer" },
+  nico:   { n: "Nico",   c: "#ff8a3d", s: "croodles" },
+};
+const ME = "sofia";
+const Q = "¿Qué canción te sabes completa aunque te dé pena?";
+const av = (k, size = 34) =>
+  `<span class="avatar" style="background:${P[k].c};width:${size}px;height:${size}px;${size < 30 ? "border-width:2px" : ""}"><img src="https://api.dicebear.com/9.x/${P[k].s}/svg?seed=${k}-mindswap" alt=""></span>`;
+const slug = (k) => P[k].n.toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g, "");
+const handle = (k) => "@" + slug(k);
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const $ = (id) => document.getElementById(id);
+/** Resalta @menciones que existan como cuerpo. La mía (Sofía) va en sólido. */
+const mentions = (html) => html.replace(/@([a-záéíóúñ]+)/gi, (m, n) => {
+  const k = Object.keys(P).find((x) => slug(x) === n.toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g, ""));
+  return k ? `<span class="mention${k === ME ? " me" : ""}">@${P[k].n}</span>` : m;
+});
+
+const POSTS = [
+  { id: "p1", body: "lucia", text: "Despacito. Entera. Hasta la parte de Justin Bieber 😭", likes: 5, replies: 7 },
+  { id: "p2", body: "mateo", text: "la de pokemon en español latino, sin pena ninguna", likes: 3, replies: 4 },
+  { id: "p3", body: "nico",  text: "Ninguna, yo no escucho música", likes: 1, replies: 9 },
+  { id: "p4", body: "vale",  text: "Bohemian Rhapsody con todas las voces 🎤", likes: 2, replies: 2 },
+  { id: "p5", body: "sofia", text: "Cualquiera de Karol G jajaja", likes: 2, replies: 3 },
+  { id: "p6", body: "gabriel", text: "El himno nacional de Japón (no pregunten)", likes: 4, replies: 5 },
+];
+
+document.querySelectorAll("[data-stars]").forEach((el) => {
+  const s = document.createElement("div");
+  s.className = "stars";
+  s.innerHTML = Array.from({ length: 28 }, () => {
+    const z = 1 + Math.random() * 2;
+    return `<i style="left:${Math.random() * 100}%;top:${Math.random() * 100}%;width:${z}px;height:${z}px;animation-delay:${Math.random() * 3}s"></i>`;
+  }).join("");
+  el.prepend(s);
+});
+
+$("nav").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-p]");
+  if (!b) return;
+  document.querySelectorAll("#nav button").forEach((x) => x.classList.toggle("on", x === b));
+  document.querySelectorAll(".panel").forEach((p) => p.classList.toggle("on", p.id === "p-" + b.dataset.p));
+  try { localStorage.setItem("mockTabV2", b.dataset.p); } catch {}
+});
+try { const t = localStorage.getItem("mockTabV2"); if (t) document.querySelector(`#nav [data-p="${t}"]`)?.click(); } catch {}
+
+// ---------------- autocompletado de @ ----------------
+function attachMentions(input) {
+  const pop = document.createElement("div");
+  pop.className = "at-pop";
+  input.parentElement.appendChild(pop);
+  let sel = 0, list = [];
+  const word = () => {
+    const v = input.value.slice(0, input.selectionStart);
+    const m = v.match(/@([a-záéíóúñ]*)$/i);
+    return m ? m[1].toLowerCase() : null;
+  };
+  const pick = (k) => {
+    const pos = input.selectionStart;
+    const before = input.value.slice(0, pos).replace(/@([a-záéíóúñ]*)$/i, "@" + slug(k) + " ");
+    input.value = before + input.value.slice(pos);
+    input.setSelectionRange(before.length, before.length);
+    pop.classList.remove("on"); input.focus();
+  };
+  const render = () => {
+    const w = word();
+    if (w === null) return pop.classList.remove("on");
+    list = Object.keys(P).filter((k) => k !== ME && slug(k).startsWith(w.normalize("NFD").replace(/[^a-z0-9]/g, "")));
+    if (!list.length) return pop.classList.remove("on");
+    sel = Math.min(sel, list.length - 1);
+    pop.innerHTML = `<div class="hint">Etiquetar a un cuerpo</div>` + list.map((k, i) =>
+      `<button type="button" data-k="${k}" class="${i === sel ? "sel" : ""}">${av(k, 22)} ${P[k].n} <small>${handle(k)}</small></button>`).join("");
+    pop.classList.add("on");
+  };
+  input.addEventListener("input", () => { sel = 0; render(); });
+  input.addEventListener("keydown", (e) => {
+    if (!pop.classList.contains("on")) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); sel = (sel + (e.key === "ArrowDown" ? 1 : -1) + list.length) % list.length; render(); }
+    else if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); e.stopImmediatePropagation(); pick(list[sel]); }
+    else if (e.key === "Escape") pop.classList.remove("on");
+  }, true);
+  pop.addEventListener("mousedown", (e) => { const b = e.target.closest("button"); if (b) { e.preventDefault(); pick(b.dataset.k); } });
+  input.addEventListener("blur", () => setTimeout(() => pop.classList.remove("on"), 120));
+}
+
+// ---------------- helpers "antes" ----------------
+const oldMsg = (k, text, mine) =>
+  `<div class="msg${mine ? " mine" : ""}">${av(k, 30)}<div class="bubble"><div class="who" style="color:${P[k].c}">${P[k].n}</div>${esc(text)}</div></div>`;
+const oldPost = (p, big) => `
+  <article class="xpost${big ? " big" : ""}">${av(p.body, big ? 46 : 34)}
+    <div class="xmain"><div class="xhead"><b>${P[p.body].n}</b>${big ? '<span class="xverified">✔</span>' : ""}<span class="xhandle">${handle(p.body)} · ahora</span></div>
+    <div class="xtext">${esc(p.text)}</div>
+    <div class="xactions">${p.replies != null ? `<span>💬 ${p.replies}</span>` : ""}${big ? "<span>🔁 41</span>" : ""}<span>🤍 ${p.likes}</span>${big ? "<span>📊 2.3K</span>" : ""}</div></div>
+  </article>`;
+/** Post en Cotorra. */
+const kPost = (p, { big, acts = true, badge } = {}) => `
+  <article class="k-post">${p.bot ? '<span class="bot" style="width:44px;height:44px;border-radius:50%;display:grid;place-items:center;font-size:24px;background:linear-gradient(135deg,#7b2ff7,#d6246e);border:3px solid #fff;flex-shrink:0">🧳</span>' : av(p.body, big ? 46 : 34)}
+    <div class="k-main"><div class="k-head"><b>${p.bot ? "La Máquina" : P[p.body].n}</b>${badge ? '<span class="k-badge">✦</span>' : ""}<span class="k-handle">${p.bot ? "@lamaquina" : handle(p.body)} · ahora</span></div>
+    <div class="k-text" ${big ? 'style="font-size:20px;line-height:1.3"' : ""}>${mentions(esc(p.text))}</div>
+    ${acts ? `<div class="k-acts"><span class="k-act">💬 ${p.replies ?? 0}</span><span class="k-act">❤️ ${p.likes ?? 0}</span><span class="k-act sus">🤨 ${p.sus ?? 0}</span>${big ? '<span class="k-act">👀 312 chismosos</span>' : ""}</div>` : ""}</div>
+  </article>`;
+
+// =================== 1. NOCHE ===================
+const DM = [
+  { k: "mateo", t: "oye sofi, ¿tú viste lo que dijo nico? 👀" },
+  { k: "mateo", t: "eso de que no escucha música es MUY raro" },
+  { k: ME, t: "sí jaja nico se sabe todo reggaeton" },
+  { k: ME, t: "algo pasó ahí" },
+  { k: "mateo", t: "¿y tú? te noto rara hoy 🤨" },
+];
+$("nightBefore").innerHTML = `
+  <div class="card tabs">
+    <div class="quota"><div class="quota-title">💬 Chats para iniciar</div><div class="quota-dots"><span class="on">💬</span><span>💬</span><span>💬</span></div><b>1/3 disponibles</b><p class="small">Responder a quien te escriba es gratis.</p></div>
+    <p class="muted small">Estás en el cuerpo de <b>Sofía</b>.</p>
+    <div class="tab on">${av("mateo", 26)} Mateo<span class="tab-state">abierto</span></div>
+    <div class="tab">${av("lucia", 26)} Lucía<span class="tab-state">📩 te escribió</span><span class="dot">2</span></div>
+    <div class="tab">${av("nico", 26)} Nico<span class="tab-state">abierto</span></div>
+    <div class="tab">${av("vale", 26)} Vale<span class="tab-state">nuevo</span></div>
+    <div class="tab">${av("gabriel", 26)} Gabriel<span class="tab-state">nuevo</span></div>
+  </div>
+  <div class="card chat">
+    <div class="chat-head">🌙 Privado con el cuerpo de <b>Mateo</b></div>
+    <div class="msgs">${DM.map((m) => oldMsg(m.k, m.t, m.k === ME)).join("")}</div>
+    <div class="composer"><input class="g" placeholder="Escribe como Sofía…"><button class="btn">Enviar</button></div>
+  </div>`;
+
+const INBOX = [
+  { k: "lucia", pv: "no le digas a nadie pero…", time: "ahora", unread: 2, incoming: true },
+  { k: "mateo", pv: "¿y tú? te noto rara hoy 🤨", time: "1m" },
+  { k: "nico",  pv: "Tú: ¿seguro que eres nico?", time: "2m" },
+  { k: "vale",  pv: "Toca para escribir · usa 1 💬", time: "" },
+  { k: "gabriel", pv: "Toca para escribir · usa 1 💬", time: "" },
+];
+const ROOMS = [
+  ["🛁", "El baño", "Pusieron el seguro. Hablen bajito."],
+  ["🍳", "La cocina", "Entre el hielo y las botellas nadie los oye."],
+  ["🌙", "El balcón", "Afuera hace frío, pero hay privacidad."],
+  ["🧺", "La lavandería", "Entre la ropa sucia nadie los escucha."],
+  ["🚗", "El garaje", "Huele a gasolina y a secretos."],
+  ["🧥", "El clóset", "Literalmente dentro del clóset. Apretados."],
+];
+const roomOf = (a, b) => { const s = [a, b].sort().join("|"); let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) | 0; return ROOMS[Math.abs(h) % ROOMS.length]; };
+
+/** Bandeja + DM. `casa` = versión con la narrativa de Los Cuartos. */
+function mountNight(rootId, casa) {
+  const root = $(rootId);
+  function render(active) {
+    const conv = active === "mateo" ? DM : active === "lucia"
+      ? [{ k: "lucia", t: "sofiii" }, { k: "lucia", t: "no le digas a nadie pero…" }] : active === "nico"
+      ? [{ k: ME, t: "¿seguro que eres nico?" }] : [];
+    const who = P[active];
+    const room = roomOf(ME, active);
+    root.innerHTML = `
+      <aside class="n-inbox">
+        <div class="v2quota">
+          <div class="t">${casa ? "🚪 Llevar aparte" : "💬 Chats para iniciar"}</div>
+          <div class="d"><span class="on">💬</span><span>💬</span><span>💬</span></div>
+          <b>1/3 disponibles</b>
+          <p>${casa ? "Si alguien te jala a un cuarto, entras gratis." : "Responder a quien te escriba es gratis."}</p>
+        </div>
+        <h4>${casa ? "La casa" : "Mensajes"} <small>como Sofía</small></h4>
+        ${INBOX.map((r) => {
+          const rm = roomOf(ME, r.k);
+          const opened = ["mateo", "lucia", "nico"].includes(r.k);
+          const pv = casa && !opened ? "Llevar a un cuarto → usa 1 💬" : casa && r.incoming && r.k !== active ? `te jaló a ${rm[1].toLowerCase()}` : r.pv;
+          return `
+          <button class="n-row${r.k === active ? " on" : ""}${r.incoming && r.k !== active ? " incoming" : ""}" data-k="${r.k}">
+            <span class="n-av">${av(r.k, 36)}<span class="online"></span></span>
+            <span class="meta"><span class="nm"><span>${P[r.k].n}${casa && opened ? `<span class="room-tag">${rm[0]}</span>` : ""}</span><small>${r.time}</small></span><span class="pv${r.unread && r.k !== active ? " unread" : ""}">${r.incoming && r.k !== active ? "📩 " : ""}${esc(pv)}</span></span>
+            ${r.unread && r.k !== active ? `<span class="n-badge">${r.unread}</span>` : ""}
+          </button>`; }).join("")}
+      </aside>
+      <div class="n-dm">
+        <div class="n-dm-head">${av(active, 38)}<div><b>${casa ? `${room[0]} ${room[1]} · con ${who.n}` : `Cuerpo de ${who.n}`}</b><span>${casa ? `cuerpo de ${who.n} · ${handle(active)}` : `🌙 solo ustedes dos · ${handle(active)}`}</span></div><span class="moon">${casa ? room[0] : "🌙"}</span></div>
+        <div class="n-msgs">
+          <div class="n-day">Noche 1</div>
+          ${casa && conv.length ? `<div class="n-room">🚪 ${room[2]}</div>` : ""}
+          ${conv.length ? conv.map((m, i) => `${i && conv[i - 1].k !== m.k ? '<div class="n-gap"></div>' : ""}<div class="n-b ${m.k === ME ? "me" : "them"}">${esc(m.t)}</div>`).join("")
+            : `<div class="center-text muted">${casa ? `Llevarte a ${who.n} a ${room[1].toLowerCase()} ${room[0]} usa 1 de tus 💬` : `Escribirle a ${who.n} usa 1 de tus 💬`}</div>`}
+          ${active === "mateo" ? '<div class="n-seen">Visto ✓✓</div><div class="n-typing"><i></i><i></i><i></i></div>' : ""}
+        </div>
+        <div class="n-comp"><div class="field">${av(ME, 28)}<input placeholder="${casa ? "Susurra como Sofía…" : "Escribe como Sofía…"}"></div><button class="n-send">➤</button></div>
+      </div>`;
+    const box = root.querySelector(".n-msgs"); box.scrollTop = box.scrollHeight;
+    const inp = root.querySelector(".n-comp input");
+    const send = () => {
+      const v = inp.value.trim(); if (!v) return;
+      box.querySelector(".n-typing")?.remove(); box.querySelector(".n-seen")?.remove();
+      box.querySelector(".center-text")?.remove();
+      box.insertAdjacentHTML("beforeend", `<div class="n-b me">${esc(v)}</div>`);
+      inp.value = ""; box.scrollTop = box.scrollHeight;
+    };
+    root.querySelector(".n-send").onclick = send;
+    inp.onkeydown = (e) => e.key === "Enter" && send();
+    return inp;
+  }
+  root.addEventListener("click", (e) => { const r = e.target.closest(".n-row"); if (r) render(r.dataset.k).focus(); });
+  render("mateo");
+}
+mountNight("nightAfter", false);
+
+// =================== 2. DÍA ===================
+const CHAT = [
+  { k: "nico", t: "ok ok lo de la música era broma" },
+  { k: "lucia", t: "nico TÚ eres el que pone reggaetón en todas las fiestas", q: "p3" },
+  { k: "lucia", t: "eso no lo escribió nico ni de chiste" },
+  { k: "mateo", t: "@nico ¿cuál es tu canción favorita entonces?" },
+  { k: ME, t: "jajaja yo sí me sé Despacito también", q: "p1" },
+  { k: "vale", t: "gabriel con el himno de japón es lo más gabriel del mundo" },
+  { k: "vale", t: "o alguien lo está imitando MUY bien 🤔 ¿tú qué opinas @sofia?" },
+];
+$("dayBefore").innerHTML = `
+  <div class="card chat">
+    <div class="msgs"><div class="sys">☀️ Chat global</div>${CHAT.map((m) => oldMsg(m.k, m.t, m.k === ME)).join("")}</div>
+    <div class="composer"><input class="g" placeholder="Escribe como Sofía…"><button class="btn">Enviar</button></div>
+  </div>
+  <aside class="card answers"><div class="thread-q">❓ ${Q}</div>
+    <div class="answers-list">${POSTS.map((p) => oldPost(p)).join("")}</div></aside>`;
+
+/** Mensajes planos agrupados (Día y La Sala). */
+function flatMsgs(list) {
+  return list.map((m, i) => {
+    if (m.sys) return `<div class="sys2">${m.sys}</div>`;
+    const prev = list[i - 1];
+    const first = !prev || prev.sys || prev.k !== m.k;
+    const mine = m.k === ME;
+    const q = m.q ? POSTS.find((p) => p.id === m.q) : null;
+    return `
+      <div class="n-gm${mine ? " mine" : ""}${first ? " first" : ""}">
+        ${mine ? "" : first ? av(m.k, 30) : '<span class="spacer"></span>'}
+        <div class="f-b">
+          ${first && !mine ? `<div class="who" style="color:${P[m.k].c}">${P[m.k].n}</div>` : ""}
+          ${q ? `<span class="k-quote"><span class="lg">🦜</span><b>${handle(q.body)}</b> ${esc(q.text.slice(0, 38))}…</span>` : ""}
+          ${mentions(esc(m.t))}
+        </div>
+      </div>`;
+  }).join("");
+}
+const groupHead = (title, sub) => `<div class="n-g-head"><div class="n-stack">${Object.keys(P).slice(0, 5).map((k) => av(k, 26)).join("")}</div>
+  <div><b>${title}</b><span>${sub}</span></div></div>`;
+
+/** Chat grupal v2 con citas y menciones. */
+function mountGroup(root, { list, head, pin, sofa, side }) {
+  let quoted = null;
+  root.innerHTML = `
+    <div class="n-group">
+      ${head}
+      ${sofa ? `<div class="sofa" id="${root.id}-sofa"></div>` : ""}
+      <div class="n-pin">📌 ${pin}</div>
+      <div class="n-gmsgs">${flatMsgs(list)}</div>
+      <div class="n-gcomp">
+        <div class="n-qchip"></div>
+        <div class="row"><div class="cmp-wrap"><input class="g" placeholder="${sofa ? "Di algo en la sala como Sofía… (@ para etiquetar)" : "Escribe como Sofía… (@ para etiquetar)"}"></div><button class="btn">Enviar</button></div>
+      </div>
+    </div>
+    ${side ? `<aside class="n-side"><h4>🦜 Cotorra · toca ↩ para citar</h4>
+      <div class="list">${[...POSTS].sort((a, b) => b.likes - a.likes).map((p) => `
+        <div class="n-mini">${av(p.body, 30)}<div style="flex:1;min-width:0">
+          <div class="h"><b>${P[p.body].n}</b> ${handle(p.body)} ${p.replies >= 9 ? '<span class="n-hot">🔥 más cotorreado</span>' : ""}</div>
+          <div class="t">${esc(p.text)}</div>
+          <div class="acts"><span>💬 ${p.replies}</span><span>❤️ ${p.likes}</span><span>🤨 ${p.id === "p3" ? 4 : p.id === "p6" ? 2 : 0}</span><button class="cite" data-q="${p.id}">↩ Citar</button></div>
+        </div></div>`).join("")}</div></aside>` : ""}`;
+  const box = root.querySelector(".n-gmsgs"), inp = root.querySelector("input"), chip = root.querySelector(".n-qchip");
+  box.scrollTop = box.scrollHeight;
+  attachMentions(inp);
+  const setQuote = (id) => {
+    quoted = id;
+    if (!id) return chip.classList.remove("on");
+    const p = POSTS.find((x) => x.id === id);
+    chip.innerHTML = `<b>↩ Citando a ${handle(p.body)}:</b> ${esc(p.text.slice(0, 40))}… <button type="button">✕</button>`;
+    chip.querySelector("button").onclick = () => setQuote(null);
+    chip.classList.add("on"); inp.focus();
+  };
+  root.addEventListener("click", (e) => { const c = e.target.closest(".cite"); if (c) setQuote(c.dataset.q); });
+  const send = () => {
+    const v = inp.value.trim(); if (!v) return;
+    list.push({ k: ME, t: v, q: quoted });
+    box.innerHTML = flatMsgs(list);
+    inp.value = ""; setQuote(null); box.scrollTop = box.scrollHeight;
+  };
+  root.querySelector(".btn").onclick = send;
+  inp.addEventListener("keydown", (e) => e.key === "Enter" && send());
+}
+mountGroup($("dayAfter"), {
+  list: CHAT.map((m) => ({ ...m })),
+  head: groupHead("☀️ Chat global", `6 cuerpos · hablas como <b style="color:${P[ME].c}">Sofía</b>`),
+  pin: `❓ ${Q}`, side: true,
+});
+
+// =================== 3. LA PREGUNTA ===================
+$("qBefore").innerHTML = `
+  <div class="card question">
+    <div class="q-label">❓ LA PREGUNTA</div>
+    <h1 class="q-text">${Q}</h1>
+    <p class="muted">Tu respuesta saldrá publicada como si fuera de <b>Sofía</b>. ¿Respondes como tú… o como respondería Sofía? 😏</p>
+    <div class="q-compose">${av(ME, 44)}<textarea rows="3" placeholder="Responde como Sofía…"></textarea></div>
+    <div class="q-foot"><span class="muted small">0/200 · 4/6 ya respondieron</span><button class="btn" disabled>Publicar 🚀</button></div>
+  </div>`;
+const DONE = ["lucia", "mateo", "vale", "nico"];
+$("qAfter").innerHTML = `
+  <div class="n-q">
+    <div class="k-app" style="align-self:center">🦜 cotorra <small>· la red de la fiesta</small></div>
+    <div class="n-qhint">🎭 Vas a salir como ${handle(ME)}. ¿Contestas como tú o como Sofía?</div>
+    <div class="n-xcard">
+      <div class="n-machine">${kPost({ bot: true, text: Q }, { acts: false, badge: true })}</div>
+      <div class="n-replying">Respondiendo a <b>@lamaquina</b></div>
+      <div class="n-compose">${av(ME, 44)}<textarea id="qIn" maxlength="200" placeholder="Cotorrea tu respuesta…"></textarea></div>
+      <div class="n-cfoot"><span class="as">Cotorreas como <b style="color:${P[ME].c}">Sofía</b> ${handle(ME)}</span>
+        <svg class="n-ring" viewBox="0 0 26 26"><circle cx="13" cy="13" r="10" stroke="#30264c"/><circle id="qRing" cx="13" cy="13" r="10" stroke="#5ee37a" stroke-dasharray="62.8" stroke-dashoffset="62.8" transform="rotate(-90 13 13)" stroke-linecap="round"/></svg>
+        <button class="k-btn" id="qPost" disabled>Cotorrear</button></div>
+    </div>
+    <div class="n-xcard" id="qPrev" style="opacity:.55">
+      <div style="font-size:11px;color:var(--k-muted);font-weight:800;margin-bottom:6px;letter-spacing:1px">ASÍ SALDRÁ EN EL HILO 👇</div>
+      <div id="qPrevBody">${kPost({ body: ME, text: "…", likes: 0 })}</div>
+    </div>
+    <div class="n-waiting">
+      ${Object.keys(P).filter((k) => k !== ME).map((k) => `<span class="w${DONE.includes(k) ? "" : " pending"}">${av(k, 32)}${DONE.includes(k) ? '<span class="ck">✓</span>' : ""}<span${DONE.includes(k) ? "" : ' class="typing"'}>${DONE.includes(k) ? P[k].n : "✍️…"}</span></span>`).join("")}
+      <span>4/6 cotorrearon</span>
+    </div>
+  </div>`;
+$("qIn").addEventListener("input", (e) => {
+  const v = e.target.value;
+  $("qRing").style.strokeDashoffset = 62.8 * (1 - v.length / 200);
+  $("qRing").style.stroke = v.length > 180 ? "#ffd23d" : "#5ee37a";
+  $("qPost").disabled = !v.trim();
+  $("qPrev").style.opacity = v ? 1 : 0.55;
+  $("qPrevBody").innerHTML = kPost({ body: ME, text: v || "…", likes: 0 });
+});
+$("qPost").onclick = () => { $("qPost").textContent = "✓ Cotorreado"; $("qPost").disabled = true; $("qIn").disabled = true; };
+
+// =================== 4. EL HILO ===================
+const MAIN = POSTS[2];
+const OLD_REPLIES = [
+  { k: "lucia", t: "MENTIRA nico se sabe hasta las de bad bunny viejo" },
+  { k: "mateo", t: "jajaja esto no lo escribió nico" },
+  { k: ME, t: "nico?? el de las fiestas??" },
+  { k: "vale", t: "confirmo, sospechoso" },
+];
+$("tBefore").innerHTML = `
+  <div class="thread-q">❓ ${Q}</div>
+  <div class="thread-progress">${POSTS.map((_, i) => `<span class="${i < 2 ? "done" : i === 2 ? "on" : ""}"></span>`).join("")}<b>Respuesta 3 de 6</b></div>
+  <div class="thread-bar"><div></div></div>
+  ${oldPost(MAIN, true)}
+  <div class="xreplies">${OLD_REPLIES.map((r) => `<div class="xreply${r.k === ME ? " mine" : ""}">${oldPost({ body: r.k, text: r.t, likes: 0 })}</div>`).join("")}</div>
+  <div class="composer"><input class="g" placeholder="Responder a @nico como Sofía…"><button class="btn">Responder</button></div>`;
+
+const START = [
+  { k: "lucia", t: "MENTIRA nico se sabe hasta las de bad bunny viejo", likes: 4 },
+  { k: "mateo", t: "@lucia jajaja esto no lo escribió nico", likes: 2 },
+];
+const INCOMING = [
+  { k: "vale", t: "@mateo confirmo, sospechoso 🤨" },
+  { k: "gabriel", t: "yo le creo, nico cambió 🙏", likes: 1 },
+  { k: "lucia", t: "@gabriel tú defendiendo a nico es aún MÁS raro" },
+  { k: "nico", t: "gente es que ahora solo escucho podcasts ok" },
+  { k: "mateo", t: "@nico ¿¿qué podcast?? di uno ya" },
+  { k: "vale", t: "se quedó callado JAJAJA @sofia tú lo conoces, ¿es él?" },
+];
+let tReplies, tQueue, tSeq, tLikedMain, tTick, tFeed;
+function tRender() {
+  const top = [...tReplies].sort((a, b) => b.likes - a.likes)[0];
+  $("tList").innerHTML = tReplies.map((r) => `
+    <div class="n-reply${r.k === ME ? " mine" : ""}${r === top && r.likes > 2 ? " top" : ""}" ${r.fresh ? "" : 'style="animation:none"'}>
+      ${av(r.k, 34)}
+      <div class="k-main">
+        <div class="k-head"><b>${P[r.k].n}</b><span class="k-handle">${handle(r.k)} · ahora</span>${r === top && r.likes > 2 ? '<span class="n-toptag">⭐ Top</span>' : ""}</div>
+        <div class="k-text">${mentions(esc(r.t))}</div>
+        <div class="k-acts">
+          <button class="k-act rep" data-rep="${r.k}">💬 Responder</button>
+          <button class="k-act${r.liked ? " liked" : ""}" data-like="${r.id}">${r.liked ? "❤️" : "🤍"} ${r.likes}</button>
+          <button class="k-act sus${r.sussed ? " on" : ""}" data-sus="${r.id}">🤨 ${r.sus || ""}</button>
+        </div>
+      </div>
+    </div>`).join("");
+  tReplies.forEach((r) => (r.fresh = false));
+  $("tCount").textContent = tReplies.length;
+  const l = $("tList"); l.scrollTop = l.scrollHeight;
+}
+function tPush(r) { tReplies.push({ likes: 0, sus: 0, ...r, id: "r" + ++tSeq, fresh: true }); tRender(); }
+function tStart() {
+  clearInterval(tTick); clearInterval(tFeed);
+  tSeq = 0; tReplies = []; START.forEach((r) => tReplies.push({ sus: 0, ...r, id: "r" + ++tSeq }));
+  tQueue = INCOMING.map((r) => ({ ...r })); tLikedMain = false;
+  $("tAfter").innerHTML = `
+    <div class="n-seg">${POSTS.map((_, i) => `<span class="${i < 2 ? "done" : i === 2 ? "on" : ""}">${i === 2 ? '<i id="tFill"></i>' : ""}</span>`).join("")}</div>
+    <div class="n-th-sub"><span class="q">🦜 ${Q}</span><span style="white-space:nowrap">3/6 · <span class="t" id="tLeft">0:30</span></span></div>
+    <div class="n-main">
+      ${kPost({ body: MAIN.body, text: MAIN.text }, { acts: false, badge: true, big: true }).replace('style="font-size:20px;line-height:1.3"', 'style="display:none"')}
+      <div class="k-text">${esc(MAIN.text)}</div>
+      <div class="k-acts">
+        <span class="k-act">💬 <span id="tCount">0</span></span>
+        <button class="k-act" id="tLikeMain">🤍 <span>1</span></button>
+        <button class="k-act sus" id="tSusMain">🤨 <span>4</span></button>
+        <span class="k-act">👀 312</span>
+      </div>
+      <div class="n-hearts" id="tHearts"></div>
+    </div>
+    <div class="n-replies" id="tList"></div>
+    <div class="n-typers" id="tTypers"><span class="n-typing"><i></i><i></i><i></i></span><span>Vale y Gabriel están escribiendo…</span></div>
+    <div class="n-tcomp dark-pop">
+      <div class="n-target">Cotorreando en el hilo de <b>${handle(MAIN.body)}</b> como <b style="color:${P[ME].c}">Sofía</b> · escribe <b>@</b> para etiquetar</div>
+      <div class="row">${av(ME, 32)}<div class="cmp-wrap"><input class="k-input" id="tIn" maxlength="200" placeholder="Cotorrea tu respuesta"></div><button class="k-btn" id="tSend">Cotorrear</button></div>
+    </div>`;
+  attachMentions($("tIn"));
+  tRender();
+
+  let left = 30;
+  const fill = $("tFill");
+  requestAnimationFrame(() => { fill.style.transition = "width 30s linear"; fill.style.width = "100%"; });
+  tTick = setInterval(() => {
+    left--;
+    $("tLeft").textContent = `0:${String(Math.max(0, left)).padStart(2, "0")}`;
+    $("tTimer").textContent = $("tLeft").textContent;
+    if (left <= 0) tStart();
+  }, 1000);
+  tFeed = setInterval(() => {
+    const n = tQueue.shift();
+    if (!n) { $("tTypers").style.visibility = "hidden"; return; }
+    tPush(n);
+    const names = tQueue.slice(0, 2).map((x) => P[x.k].n);
+    $("tTypers").lastElementChild.textContent = names.length ? `${names.join(" y ")} ${names.length > 1 ? "están" : "está"} escribiendo…` : "";
+  }, 3400);
+
+  $("tLikeMain").onclick = () => {
+    tLikedMain = !tLikedMain;
+    const b = $("tLikeMain"); b.classList.toggle("liked", tLikedMain);
+    b.innerHTML = `${tLikedMain ? "❤️" : "🤍"} <span>${tLikedMain ? 2 : 1}</span>`;
+    if (tLikedMain) for (let i = 0; i < 6; i++) {
+      const s = document.createElement("span");
+      s.textContent = ["❤️", "💖", "💗"][i % 3];
+      s.style.setProperty("--dx", (Math.random() * 120 - 60) + "px");
+      s.style.animationDelay = i * 0.06 + "s";
+      $("tHearts").appendChild(s); setTimeout(() => s.remove(), 1400);
+    }
+  };
+  $("tSusMain").onclick = () => { const b = $("tSusMain"); const on = b.classList.toggle("on"); b.querySelector("span").textContent = on ? 5 : 4; };
+  const send = () => { const v = $("tIn").value.trim(); if (!v) return; tPush({ k: ME, t: v }); $("tIn").value = ""; };
+  $("tSend").onclick = send;
+  $("tIn").addEventListener("keydown", (e) => e.key === "Enter" && send());
+}
+$("tAfter").addEventListener("click", (e) => {
+  const rep = e.target.closest("[data-rep]");
+  if (rep) { const i = $("tIn"); i.value = handle(rep.dataset.rep) + " "; i.focus(); return; }
+  const lk = e.target.closest("[data-like]");
+  if (lk) { const r = tReplies.find((x) => x.id === lk.dataset.like); r.liked = !r.liked; r.likes += r.liked ? 1 : -1; tRender(); return; }
+  const sb = e.target.closest("[data-sus]");
+  if (sb) { const r = tReplies.find((x) => x.id === sb.dataset.sus); r.sussed = !r.sussed; r.sus += r.sussed ? 1 : -1; tRender(); }
+});
+tStart();
+
+// =================== 5. MARCA ===================
+$("brandX").innerHTML = `<div class="thread-q">❓ ${Q}</div>${oldPost(MAIN, true)}<div class="xreply">${oldPost({ body: "lucia", text: "MENTIRA nico se sabe hasta las de bad bunny viejo", likes: 4 })}</div>`;
+const BRANDS = [
+  ["🦜", "Cotorra", "cotorreo · cotorrear", "Recomendado. \"Cotorrear\" = hablar de más. Suena a chisme de fiesta."],
+  ["🗣️", "Chismógrafo", "chisme · chismear", "Nostálgico (el cuaderno del colegio). Muy latino."],
+  ["🐣", "Pío", "pío · piar", "Corto y tierno, pero recuerda más a Twitter."],
+  ["🫖", "El Té", "té · soltar el té", "\"Spill the tea\". Muy de internet."],
+  ["📣", "Rumor", "rumor · rumorear", "Neutro, entendible en cualquier país."],
+];
+function renderBrand(i) {
+  const [emo, name, verb] = BRANDS[i];
+  $("brandName").textContent = `${name} ${emo}`;
+  $("brandK").innerHTML = `
+    <div class="k-app" style="margin-bottom:8px">${emo} ${name.toLowerCase()} <small>· ${verb}</small></div>
+    <div style="font-family:'Lilita One';font-size:15px;color:var(--k-text);background:rgba(94,227,122,.1);border:2px solid var(--k-acc);border-radius:14px;padding:6px 10px;margin-bottom:10px">${emo} ${Q}</div>
+    <div style="padding-bottom:10px;border-bottom:1px solid var(--k-line)">${kPost({ ...MAIN, sus: 4 }, { big: true, badge: true })}</div>
+    <div style="padding:10px 0 0 18px;border-left:2px solid var(--k-line);margin-top:8px">${kPost({ body: "lucia", text: "MENTIRA nico se sabe hasta las de bad bunny viejo", likes: 4, replies: 0, sus: 0 })}</div>`;
+  document.querySelectorAll(".brand").forEach((b, j) => b.classList.toggle("on", i === j));
+}
+$("brandGrid").innerHTML = BRANDS.map(([e, n, v, d], i) => `<button class="brand" data-i="${i}"><b>${e} ${n}</b><small>${v}</small><br><small>${d}</small></button>`).join("");
+$("brandGrid").addEventListener("click", (e) => { const b = e.target.closest(".brand"); if (b) renderBrand(+b.dataset.i); });
+renderBrand(0);
+
+// =================== 6. PREMISA: LA CASA ===================
+const SALA = [
+  { sys: "🧳 La Máquina los reunió en la sala. Nadie sale hasta que caiga la noche." },
+  { k: "nico", t: "ok ok lo de la música era broma" },
+  { k: "lucia", t: "nico TÚ eres el que pone reggaetón en todas las fiestas", q: "p3" },
+  { k: "mateo", t: "@nico ¿cuál es tu canción favorita entonces?" },
+  { sys: "🍕 Alguien pidió pizza. Nadie sabe quién." },
+  { k: "vale", t: "@sofia tú estabas con nico antes, ¿no?" },
+];
+mountGroup($("salaDemo"), {
+  list: SALA,
+  head: groupHead("🛋️ La Sala", `todos están aquí · hablas como <b style="color:${P[ME].c}">Sofía</b>`),
+  pin: `<span>El tema de la sala:</span> ${Q}`, sofa: true, side: false,
+});
+let talker = "nico";
+function renderSofa() {
+  const el = $("salaDemo-sofa"); if (!el) return;
+  el.innerHTML = `<div class="sofa-seats">${Object.keys(P).map((k) => `
+    <span class="seat${k === talker ? " talking" : ""}${k === ME ? " me" : ""}">${k === talker ? '<span class="say">…</span>' : ""}${av(k, 34)}<span>${k === ME ? "Tú" : P[k].n}</span></span>`).join("")}</div><div class="sofa-body"></div>`;
+}
+renderSofa();
+setInterval(() => { const ks = Object.keys(P).filter((k) => k !== ME); talker = ks[Math.floor(Math.random() * ks.length)]; renderSofa(); }, 2200);
+mountNight("cuartosDemo", true);
+
+// =================== 7. VOZ ===================
+$("callMock").innerHTML = Object.keys(P).map((k, i) => `<div class="tile${i === 2 ? " speaking" : ""}">${av(k, 46)}<span>Cuerpo de ${P[k].n}</span>${i === 2 ? '<span class="wave">▁▃▅▇▅▃▁</span>' : '<span class="wave" style="opacity:.2">▁▁▁▁▁▁▁</span>'}</div>`).join("");
+setInterval(() => {
+  const tiles = [...document.querySelectorAll(".tile")]; const s = Math.floor(Math.random() * tiles.length);
+  tiles.forEach((t, i) => { t.classList.toggle("speaking", i === s); t.querySelector(".wave").style.opacity = i === s ? 1 : 0.2; t.querySelector(".wave").textContent = i === s ? "▁▃▅▇▅▃▁" : "▁▁▁▁▁▁▁"; });
+}, 1800);
+
+let vCtx = null, vStream = null, vCarrier = null, vRaf = 0;
+function vStop() {
+  cancelAnimationFrame(vRaf);
+  vStream?.getTracks().forEach((t) => t.stop());
+  vCtx?.close();
+  vCtx = vStream = vCarrier = null;
+  $("vMeter").style.width = "0";
+  document.querySelectorAll(".vbtn[data-mode]").forEach((b) => b.classList.remove("on"));
+}
+async function vStart(mode) {
+  vStop();
+  try {
+    vStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+  } catch (e) {
+    $("vStatus").textContent = "No se pudo abrir el micrófono (" + e.name + "). Si abriste el archivo con doble clic y falla, sírvelo con: npx serve mockups";
+    return;
+  }
+  const ctx = (vCtx = new AudioContext());
+  const src = ctx.createMediaStreamSource(vStream);
+  const comp = ctx.createDynamicsCompressor();
+  const out = ctx.createGain();
+  comp.connect(out); out.connect(ctx.destination);
+  const an = ctx.createAnalyser(); an.fftSize = 512; out.connect(an);
+
+  if (mode === "raw") {
+    src.connect(comp);
+  } else if (mode === "ring") {
+    // Ring modulator: voz × seno grave -> "alien". Barato pero se sigue notando el tono.
+    const osc = ctx.createOscillator(); osc.frequency.value = 45;
+    const ring = ctx.createGain(); ring.gain.value = 0;
+    osc.connect(ring.gain); src.connect(ring); ring.connect(comp); osc.start();
+    out.gain.value = 1.6;
+  } else {
+    // Vocoder de canales: la ENVOLVENTE de cada banda de tu voz modula la misma banda de una
+    // portadora con tono FIJO (sierra + un poco de ruido para las "s"). Todos suenan al mismo robot.
+    const carrier = (vCarrier = ctx.createOscillator()); carrier.type = "sawtooth"; carrier.frequency.value = +$("vPitch").value;
+    const noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+    const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    const noise = ctx.createBufferSource(); noise.buffer = noiseBuf; noise.loop = true;
+    const noiseGain = ctx.createGain(); noiseGain.gain.value = 0.25;
+    const carrierMix = ctx.createGain();
+    carrier.connect(carrierMix); noise.connect(noiseGain); noiseGain.connect(carrierMix);
+    const curve = new Float32Array(1024); for (let i = 0; i < 1024; i++) curve[i] = Math.abs(i / 511.5 - 1);
+    const BANDS = 22, LO = 90, HI = 7000;
+    for (let i = 0; i < BANDS; i++) {
+      const f = LO * Math.pow(HI / LO, i / (BANDS - 1));
+      const mod = ctx.createBiquadFilter(); mod.type = "bandpass"; mod.frequency.value = f; mod.Q.value = 7;
+      const rect = ctx.createWaveShaper(); rect.curve = curve;
+      const env = ctx.createBiquadFilter(); env.type = "lowpass"; env.frequency.value = 35;
+      const envGain = ctx.createGain(); envGain.gain.value = 10;
+      src.connect(mod); mod.connect(rect); rect.connect(env); env.connect(envGain);
+      const car = ctx.createBiquadFilter(); car.type = "bandpass"; car.frequency.value = f; car.Q.value = 7;
+      const vca = ctx.createGain(); vca.gain.value = 0;
+      carrierMix.connect(car); car.connect(vca); envGain.connect(vca.gain); vca.connect(comp);
+    }
+    carrier.start(); noise.start();
+    out.gain.value = 2.5;
+  }
+  document.querySelector(`.vbtn[data-mode="${mode}"]`).classList.add("on");
+  $("vStatus").textContent = mode === "vocoder" ? "🤖 Habla. Así sonaría todo el mundo (mismo tono y timbre)." : mode === "ring" ? "👽 Ring-mod: distorsiona, pero se nota si la voz es grave o aguda." : "🙂 Tu voz sin efecto, para comparar.";
+  const buf = new Uint8Array(an.fftSize);
+  const tick = () => {
+    an.getByteTimeDomainData(buf);
+    let peak = 0; for (const v of buf) peak = Math.max(peak, Math.abs(v - 128));
+    $("vMeter").style.width = Math.min(100, peak / 1.28) + "%";
+    vRaf = requestAnimationFrame(tick);
+  };
+  tick();
+}
+document.querySelectorAll(".vbtn[data-mode]").forEach((b) => (b.onclick = () => vStart(b.dataset.mode)));
+$("vStop").onclick = () => { vStop(); $("vStatus").textContent = "Parado."; };
+$("vPitch").oninput = (e) => { $("vPitchV").textContent = e.target.value + " Hz"; if (vCarrier) vCarrier.frequency.value = +e.target.value; };
+$("ttsGo").onclick = () => {
+  if (!("speechSynthesis" in window)) return alert("Tu navegador no tiene speechSynthesis.");
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance($("ttsIn").value);
+  u.lang = "es-ES"; u.pitch = 0.3; u.rate = 1.05;
+  const v = speechSynthesis.getVoices().find((x) => x.lang.startsWith("es"));
+  if (v) u.voice = v;
+  speechSynthesis.speak(u);
+};
+</script>
+</body>
+</html>

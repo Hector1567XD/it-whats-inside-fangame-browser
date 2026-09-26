@@ -47,14 +47,14 @@ Hasta 12 jugadores en todos los modos.
 
 ## Flujo de una ronda ✅
 
-`🧳 La máquina → [❓ La Pregunta → 🐦 El Hilo → ☀️ Chat global → 🌙 Chat privado → (votación entre ciclos) → (re-cambio)] × ciclos → votación final → 🏆 Resultados`
+`🧳 La máquina → [❓ La Pregunta → 🦜 El Hilo → ☀️ Chat global → 🌙 Chat privado → (votación entre ciclos) → (re-cambio)] × ciclos → votación final → 🏆 Resultados`
 
 1. 🧳 **La máquina:** hace el cambio inicial. Si se puede, nadie repite el cuerpo de la ronda anterior, y en los Inmutables no repite el mismo Inmutable.
 2. **Ciclo:**
-   - ❓ **La Pregunta:** una pregunta al azar del pool (`apps/server/src/questions.ts`, 30 preguntas). Respondes desde tu cuerpo.
-   - 🐦 **El Hilo:** cada respuesta aparece como post de X, 30 s por post. Todos comentan y dan ❤️. El botón de votar pasa al siguiente post.
-   - ☀️ **Chat global:** con las respuestas al lado.
-   - 🌙 **Chat privado:** cada quien puede *iniciar* pocos DMs (auto: ⌊N/2⌋, entre 2 y 5, contando solo a los activos). Responder es gratis.
+   - ❓ **La Pregunta:** una pregunta al azar del pool (`apps/server/src/questions.ts`, 30 preguntas). "La Máquina" la publica en **Cotorra 🦜** y respondes desde tu cuerpo, con vista previa de tu post y la fila de quién ya respondió.
+   - 🦜 **El Hilo:** cada respuesta sale como post de **Cotorra**, 30 s por post. Todos comentan, dan ❤️ y 🤨 *Sus* ("esto no lo escribiría su dueño"), y se etiquetan con @. "💬 Responder" pone el @ del autor en la caja. Marca ⭐ Top, barra tipo historias y "escribiendo…". El botón de votar pasa al siguiente post.
+   - ☀️ **Chat global:** globos planos agrupados, @menciones con autocompletado, **↩ Citar** un post de Cotorra (panel lateral ordenado por ❤️) y cabecitas arriba a la izquierda que se mueven cuando alguien escribe.
+   - 🌙 **Chat privado:** cada quien puede *iniciar* pocos DMs (auto: ⌊N/2⌋, entre 2 y 5, contando solo a los activos). Responder es gratis. Bandeja con vista previa del último mensaje, brillo si te escribieron y no contestaste, "escribiendo…" y "Visto ✓✓". Un chat solo se abre al tocarlo.
    - **Votación entre ciclos:** solo si el check está activo, quedan expulsiones disponibles y hay ≥3 activos. **No ocurre en el último ciclo**, porque a ese le sigue la votación final.
    - **Re-cambio:** solo en El Inmutable. Los cambiantes activos se reparten de nuevo los cuerpos que siguen en juego, y nadie se queda en el que tenía. Vuelve a salir la animación de La máquina.
 3. **Votación final:** 🧩 ¿Quién es quién? en Clásico y Todos, ⚖️ Juicio Final en los Inmutables.
@@ -76,10 +76,14 @@ Hasta 12 jugadores en todos los modos.
 | Regla | Sale el cuerpo con más acusaciones **correctas** si llega al **60 %** de los activos, sin contar a la mente acusada. Empate arriba = nadie. Máx. 1. | Como antes. Los cuerpos ya expulsados no cuentan. | **Mayoría simple, aunque sea 1 voto.** No votar no cuenta. Empate, u Omitir ≥ máximo = nadie. | Igual. Si no sale el Inmutable, él gana. |
 | Conteo | **Oculto** (delataría información) | — | Visible y anónimo | Visible y anónimo |
 
-- **Anuncio (`VERDICT`, 8 s):** "¡El cuerpo de Marcos fue desenmascarado! Adentro estaba Ana", "Sacaste a un cambiante", "¡Sacaste al Inmutable!" o "No se sacó a nadie".
+- **Anuncio (`VERDICT`, 8 s):** "¡El cuerpo de Marcos fue desenmascarado! Adentro estaba Ana", "👻 El cuerpo de Dani ahora es un fantasma", "¡Sacaste al Inmutable!" o "No se sacó a nadie".
+- **Fantasma (Inmutables, votación entre ciclos) ✅:** si sale un **cambiante**, **no se revela qué alma tenía**. Revelarla descartaría otra mente que seguro no está en su cuerpo. El cuerpo queda como fantasma y la partida sigue. Se revela cuando sale el Inmutable, en el Juicio Final y en los resultados. En Clásico y Todos, el Desenmascare sí revela la mente, porque ese es el castigo.
 - **Reacciones en vivo** en las votaciones y el anuncio: 😂 😭 😊 ❤️ 😡 👏 🤔 👀 🤡. Son solo ambiente, no cuentan como voto, y tienen anti-spam de 150 ms.
-- **Expulsión:** sale **el cuerpo** (`bodyOut`) **y la mente que tenía adentro** (`out`), que pasa a espectador. El dueño original de ese cuerpo sigue jugando desde el cuerpo en el que esté.
+- **Expulsión:** sale **el cuerpo** (`bodyOut`, público) **y la mente que tenía adentro**, que pasa a espectador. El dueño original de ese cuerpo sigue jugando desde el cuerpo en el que esté.
+  - Desenmascare (y fin de partida): la mente se marca `out` en público.
+  - Fantasma: la mente queda en `hiddenOut`, privado del room. En público **nadie** aparece como `out` hasta el final. El cliente sabe que es espectador por `identity.spectator`. Los conteos de activos se calculan por cuerpos (`activeCount`), así cuadran sin delatar a nadie.
 - **Espectador:** solo lee el chat público. No escribe, no vota, no recibe DMs y no ve quién es quién hasta los resultados.
+- **🕸️ Grafo de chats (espectadores) ✅:** de noche el espectador ve los cuerpos en círculo, con una línea entre cada par que se está escribiendo. La línea se engrosa con los mensajes y destella con cada uno nuevo, y abajo hay una lista "Ana ↔ Beto · 2 mensajes". **Nunca ve el contenido.** El server manda `chatGraph` solo a los espectadores.
 - **Fin anticipado (Inmutables):** si sale el Inmutable, ganan los cambiantes; si quedan solo 2 activos, gana el Inmutable.
 
 ### Checks del lobby
@@ -122,7 +126,7 @@ Hasta 12 jugadores en todos los modos.
   3. Puntos de la ronda.
 - **Inmutables ✅:** quién ganó, quién era el Inmutable, expulsiones por ciclo, quién estaba en cada cuerpo al final con su recorrido, y puntos de la ronda.
 - **Anuncio de votación ✅:** 1,5 s de suspenso, luego el resultado; el conteo solo aparece en las votaciones de los Inmutables. Si hay ganador sale el banner, y "Eras tú" si te expulsaron.
-- **Espectador ✅:** pill "👻 Espectador", chat e hilo de solo lectura, sin likes, noche oculta, sin votar ni adivinar.
+- **Espectador ✅:** pill "👻 Espectador", chat e hilo de solo lectura, sin likes, grafo de chats de noche, sin votar ni adivinar.
 
 ## Reglas técnicas clave
 
@@ -130,6 +134,10 @@ Hasta 12 jugadores en todos los modos.
 - En Pregunta, Hilo, Día y Noche se habla con el nombre del **cuerpo**. En el lobby y en resultados, con el nombre real.
 - **Reconexión:** con el token (120 s de gracia) o volviendo a entrar con el mismo nombre ("¿eres tú?"). Es inseguro a propósito. Al reconectar se reenvían el historial del chat, los DMs de la noche, el anuncio en curso y los resultados.
 - Las reglas puras (mínimos, ciclos Auto, puntos, resolución de votos) están en `apps/server/src/rules.ts`, separadas de `GameRoom.ts`.
+
+- **Sin filtraciones durante la partida:**
+  - En los Inmutables el marcador público (`score`) se actualiza **recién al final**. Ver quién sumó tras una votación delataría al Inmutable.
+  - En La Pregunta, el "quién ya respondió" es anónimo (✓ / …): mostrar las mentes delataría a los fantasmas, que nunca responden.
 
 ## Verificación (26/09/2026)
 
@@ -140,9 +148,14 @@ Hasta 12 jugadores en todos los modos.
   - Clásico: el Desenmascare expulsa con 3/5 (60 %) y no con 2/5; el conteo no se envía; "no cambió" se rechaza sin el check; puntos −200 / +200.
 - Navegador: inicio con 4 modos, lobby con checks y modal, re-cambio, votación con reacciones, anuncio y resultados del Inmutable. Sin errores de consola.
 
-## Propuestas no aprobadas
+## Decisiones de UI (v2 aprobada, 26/09/2026)
 
-- `mockups/fases-antes-despues.html`: cambios visuales y de lógica de las fases. **No aprobado: no implementar.**
+- **Cotorra 🦜** reemplaza el look de X: marca propia (nombre, sello ✦ amarillo, colores del juego, "cotorrear"). Nada de logo, nombre ni check azul de X.
+- **Sin premisas narrativas** por ahora ("La Sala", "Los Cuartos"): un chat es un chat, para no saturar de conceptos.
+- **Para después:** reacciones a mensajes del chat, subhilos (responder a una respuesta), tema fijado en el chat global.
+- **Descartado:** respuestas sugeridas, la encuesta del grupo y la captura filtrada.
+- Mockups: `mockups/fases-antes-despues.html` (v1) y `mockups/fases-v2.html` (v2; se implementó todo menos la narrativa y la voz).
+- **Voz:** en investigación, sin implementar. Ver `mockups/voz-v3.html`.
 
 ## Sin decidir
 
@@ -151,7 +164,6 @@ Hasta 12 jugadores en todos los modos.
 
 ## Pendiente conocido
 
-- Grafo de "quién chatea con quién" para espectadores, sin mostrar los mensajes.
 - i18n.
 - Historial de DMs de noches anteriores.
 - Ampliar el pool de preguntas.

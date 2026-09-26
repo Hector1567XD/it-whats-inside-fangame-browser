@@ -74,6 +74,7 @@ export type Verdict = {
   mindId?: string;
   wasSame?: boolean; // desenmascarado sin haber cambiado
   wasImmutable?: boolean;
+  ghost?: boolean; // Inmutables, votación intermedia: salió un cambiante y NO se revela qué alma tenía
   tally?: Record<string, number>; // cuerpo -> votos, "skip" -> omitir (solo Votación / Juicio Final)
   winner?: "changers" | "immutable";
 };

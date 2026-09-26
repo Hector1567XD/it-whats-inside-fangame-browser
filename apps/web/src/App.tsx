@@ -4,12 +4,12 @@ import type { Room } from "colyseus.js";
 import {
   client, saveReconnect, loadReconnect, clearReconnect, roomInfo, autoChats, autoCycles, skipNeeded, isImmutableMode, MODES,
   type StateView, type ChatMsg, type DmMsg, type ResultsPayload, type PlayerView, type Settings, type Mode, type Phase,
-  type Role, type Verdict,
+  type Role, type Verdict, type ChatEdge, ghostCount,
 } from "./net";
 import { Avatar, STYLES, STYLE_IDS, randomSeed, validAvatar, type StyleId } from "./Avatar";
 import { PhaseBanner, Stars, SwapScreen } from "./Overlay";
 import { GroupChat, Night, type Lookup, type Me } from "./Chat";
-import { DayView, Guess, QuestionPhase, ThreadPhase } from "./Phases";
+import { DayView, Guess, QuestionPhase, ThreadPhase, type Social } from "./Phases";
 import { Results } from "./Results";
 import { SpectatorNote, VerdictScreen, VotePhase, type Floater } from "./Vote";
 import { sfx, isMuted, setMuted } from "./sfx";
@@ -211,7 +211,7 @@ function HowToPlay({ onClose }: { onClose: () => void }) {
   const steps = [
     ["🧳", "La máquina", "Al empezar cambia de cuerpo a algunos (Clásico: nadie sabe cuántos), a todos, o a todos menos al Inmutable."],
     ["❓", "La Pregunta", "Todos responden la misma pregunta… desde el cuerpo en el que están."],
-    ["🐦", "El Hilo", "Cada respuesta sale como post de X. Todos la comentan, una por una."],
+    ["🦜", "El Hilo", "Cada respuesta sale publicada en Cotorra, la red social de la fiesta. Todos la comentan (❤️, 🤨, @etiquetas), una por una."],
     ["☀️", "Chat global", "Todos te ven con el nombre y avatar de tu cuerpo. Las respuestas quedan al lado."],
     ["🌙", "Chat privado", "Chats 1 a 1. Solo puedes INICIAR unos pocos (ojo al contador 💬); responder es gratis."],
     ["🧩", "¿Quién es quién?", "Clásico y Todos: +200 por descubrir qué mente hay en un cuerpo cambiado. +50 por acertar que alguien NO cambió."],
@@ -256,11 +256,16 @@ function Game({ room }: { room: Room }) {
   const [chat, setChat] = useState<ChatMsg[]>([]);
   const [dms, setDms] = useState<Record<string, DmMsg[]>>({});
   const [used, setUsed] = useState(0);
+  const [graph, setGraph] = useState<ChatEdge[]>([]); // solo llega si soy espectador
   const [results, setResults] = useState<ResultsPayload | null>(null);
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [floats, setFloats] = useState<Floater[]>([]);
   const [revealed, setRevealed] = useState(false);
   const [liked, setLiked] = useState<Set<string>>(new Set());
+  const [sussed, setSussed] = useState<Set<string>>(new Set());
+  // "Escribiendo…": clave "g:cuerpo" (día/hilo) o "d:cuerpo" (chat privado) -> hasta cuándo mostrarlo
+  const [typing, setTyping] = useState<Record<string, number>>({});
+  const [seen, setSeen] = useState<Record<string, number>>({}); // chat privado: hasta qué mensaje mío leyó cada cuerpo
   const [toast, setToast] = useState<{ text: string; kind: string; id: number } | null>(null);
   const meRef = useRef(me);
   meRef.current = me;
@@ -272,15 +277,17 @@ function Game({ room }: { room: Room }) {
     toastTimer.current = setTimeout(() => setToast(null), 3200);
   }
 
-  function toggleLike(id: string) {
-    sfx.pop();
-    setLiked((prev) => {
-      const n = new Set(prev);
-      n.has(id) ? n.delete(id) : n.add(id);
-      return n;
-    });
-    room.send("like", { id });
-  }
+  const toggleIn = (set: typeof setLiked, id: string) => set((prev) => {
+    const n = new Set(prev);
+    n.has(id) ? n.delete(id) : n.add(id);
+    return n;
+  });
+  const social: Social = {
+    liked, sussed,
+    like: (id) => { sfx.pop(); toggleIn(setLiked, id); room.send("like", { id }); },
+    sus: (id) => { sfx.click(); toggleIn(setSussed, id); room.send("sus", { id }); },
+  };
+  const stopTyping = (key: string) => setTyping((t) => { if (!(key in t)) return t; const n = { ...t }; delete n[key]; return n; });
 
   const react = (target: string, emoji: string) => { sfx.click(); room.send("react", { target, emoji }); };
 
@@ -291,10 +298,11 @@ function Game({ room }: { room: Room }) {
     syncNow();
     const poll = setInterval(syncNow, 500);
     setTimeout(() => clearInterval(poll), 10000);
-    room.onMessage("identity", ({ mindId, bodyId, role }: Me & { role: Role }) => { setMe({ mindId, bodyId }); setRole(role ?? null); });
+    room.onMessage("identity", ({ mindId, bodyId, role, spectator }: Me & { role: Role }) => { setMe({ mindId, bodyId, spectator: !!spectator }); setRole(role ?? null); });
     room.onMessage("chatHistory", setChat);
     room.onMessage("chat", (m: ChatMsg) => {
       setChat((c) => [...c, m]);
+      stopTyping("g:" + m.fromBody);
       const mine = m.fromBody === (m.real ? meRef.current?.mindId : meRef.current?.bodyId);
       mine ? sfx.send() : sfx.pop();
     });
@@ -305,9 +313,22 @@ function Game({ room }: { room: Room }) {
     });
     room.onMessage("dm", (m: DmMsg) => {
       setDms((d) => ({ ...d, [m.withBody]: [...(d[m.withBody] ?? []), m] }));
+      stopTyping("d:" + m.fromBody);
       m.fromBody === meRef.current?.bodyId ? sfx.send() : sfx.pop();
     });
     room.onMessage("quota", ({ used }: { used: number }) => setUsed(used));
+    room.onMessage("chatGraph", setGraph);
+    room.onMessage("typing", ({ body, dm }: { body: string; dm?: boolean }) => {
+      const key = (dm ? "d:" : "g:") + body;
+      setTyping((t) => ({ ...t, [key]: Date.now() + 3000 }));
+      setTimeout(() => setTyping((t) => {
+        if (!(t[key] <= Date.now())) return t;
+        const n = { ...t };
+        delete n[key];
+        return n;
+      }), 3100);
+    });
+    room.onMessage("seen", ({ withBody, ts }: { withBody: string; ts: number }) => setSeen((v) => ({ ...v, [withBody]: Math.max(v[withBody] ?? 0, ts) })));
     room.onMessage("results", setResults);
     room.onMessage("verdict", setVerdict);
     room.onMessage("reaction", ({ target, emoji }: { target: string; emoji: string }) => {
@@ -326,8 +347,9 @@ function Game({ room }: { room: Room }) {
   const phaseKey = s ? `${s.phase}-${s.cycle}-${s.round}` : "";
   useEffect(() => {
     if (!s) return;
-    if (s.phase === "NIGHT") { setDms({}); setUsed(0); }
-    if (s.phase === "QUESTION") setLiked(new Set());
+    if (s.phase === "NIGHT") { setDms({}); setUsed(0); setSeen({}); }
+    if (s.phase === "QUESTION") { setLiked(new Set()); setSussed(new Set()); }
+    setTyping({});
     if (s.phase === "LOBBY") { setResults(null); setRevealed(false); }
     if (s.phase === "SWAP" && s.cycle === 0) setChat([]);
     if (s.phase !== "VERDICT") setVerdict(null);
@@ -344,7 +366,8 @@ function Game({ room }: { room: Room }) {
   const players = Object.values(s.players);
   const isHost = s.hostId === me.mindId;
   const P: Lookup = (id) => s.players[id];
-  const spectator = !!P(me.mindId)?.out;
+  const spectator = !!me.spectator;
+  const typingIn = (prefix: string) => new Set(Object.keys(typing).filter((k) => k.startsWith(prefix)).map((k) => k.slice(2)));
 
   return (
     <div className={"game phase-" + s.phase}>
@@ -356,16 +379,16 @@ function Game({ room }: { room: Room }) {
         {s.phase === "LOBBY" && (
           <div className="split">
             <Lobby s={s} players={players} isHost={isHost} room={room} />
-            <GroupChat room={room} entries={chat} me={me} P={P} speakAs={P(me.mindId)?.name ?? ""} />
+            <GroupChat room={room} entries={chat} me={me} P={P} people={players} speakAs={P(me.mindId)?.name ?? ""} />
           </div>
         )}
         {s.phase === "SWAP" && (
-          <SwapScreen key={s.cycle} players={players} mind={P(me.mindId)} body={P(me.bodyId)} timer={s.timer} role={role} reswap={s.cycle > 0} />
+          <SwapScreen key={s.cycle} players={players} mind={P(me.mindId)} body={P(me.bodyId)} spectator={!!me.spectator} timer={s.timer} role={role} reswap={s.cycle > 0} />
         )}
         {s.phase === "QUESTION" && <QuestionPhase room={room} s={s} me={me} P={P} players={players} />}
-        {s.phase === "THREAD" && <ThreadPhase room={room} s={s} me={me} P={P} liked={liked} toggleLike={toggleLike} />}
-        {s.phase === "DAY" && <DayView room={room} s={s} chat={chat} me={me} P={P} liked={liked} toggleLike={toggleLike} />}
-        {s.phase === "NIGHT" && <Night room={room} s={s} players={players} me={me} dms={dms} used={used} P={P} />}
+        {s.phase === "THREAD" && <ThreadPhase room={room} s={s} me={me} P={P} players={players} social={social} typing={typingIn("g:")} />}
+        {s.phase === "DAY" && <DayView room={room} s={s} chat={chat} me={me} P={P} players={players} social={social} typing={typingIn("g:")} />}
+        {s.phase === "NIGHT" && <Night room={room} s={s} players={players} me={me} dms={dms} used={used} P={P} typing={typingIn("d:")} seen={seen} graph={graph} />}
         {["UNMASK", "VOTE", "FINAL_VOTE"].includes(s.phase) && (
           <VotePhase key={s.phase + s.cycle} room={room} s={s} me={me} role={role} P={P} players={players} floats={floats} react={react} />
         )}
@@ -374,7 +397,7 @@ function Game({ room }: { room: Room }) {
         {s.phase === "RESULTS" && (
           <>
             <Results data={results} P={P} me={me} isHost={isHost} room={room} onRevealed={setRevealed} />
-            {revealed && <GroupChat className="results-chat" room={room} entries={chat} me={me} P={P} speakAs={P(me.mindId)?.name ?? ""} />}
+            {revealed && <GroupChat className="results-chat" room={room} entries={chat} me={me} P={P} people={players} speakAs={P(me.mindId)?.name ?? ""} />}
           </>
         )}
         {spectator && ["DAY", "THREAD"].includes(s.phase) && <SpectatorNote />}
@@ -389,7 +412,7 @@ function phaseLabel(s: StateView) {
     case "LOBBY": return "🛋️ Sala de espera";
     case "SWAP": return s.cycle > 0 ? `🧳 Re-cambio${cyc}` : "🧳 La máquina";
     case "QUESTION": return `❓ La Pregunta${cyc}`;
-    case "THREAD": return `🐦 El Hilo ${s.thread + 1}/${s.posts.length}${cyc}`;
+    case "THREAD": return `🦜 El Hilo ${s.thread + 1}/${s.posts.length}${cyc}`;
     case "DAY": return `☀️ Chat global${cyc}`;
     case "NIGHT": return `🌙 Chat privado${cyc}`;
     case "UNMASK": return `🎭 El Desenmascare${cyc}`;
@@ -411,11 +434,11 @@ function TopBar({ s, room, me, role, isHost, players }: {
   const body = s.players[me.bodyId];
   const label = phaseLabel(s);
   const same = me.mindId === me.bodyId;
-  const spectator = !!mind?.out;
+  const spectator = !!me.spectator;
 
   const voters = players.filter((p) => p.connected && !p.out);
   const votes = voters.filter((p) => p.skipVote).length;
-  const needed = skipNeeded(voters.length);
+  const needed = skipNeeded(Math.max(1, voters.length - ghostCount(players)));
   const myVote = mind?.skipVote;
   const canVote = SKIPPABLE.includes(s.phase) && !spectator;
 
@@ -531,7 +554,7 @@ function SettingsPanel({ s, isHost, room, players }: { s: StateView; isHost: boo
       dec: () => set({ cycles: Math.max(0, st.cycles - 1) }), inc: () => set({ cycles: st.cycles + 1 }),
     },
     time("❓ La Pregunta", "questionSeconds", 15),
-    time("🐦 El Hilo (c/ respuesta)", "threadSeconds", 5),
+    time("🦜 El Hilo (c/ respuesta)", "threadSeconds", 5),
     time("☀️ Chat global", "daySeconds", 15),
     time("🌙 Chat privado", "nightSeconds", 15),
     time(finalName, "guessSeconds", 15),
@@ -552,7 +575,7 @@ function SettingsPanel({ s, isHost, room, players }: { s: StateView; isHost: boo
 
   const perCycle = [
     st.questionSeconds > 0 && "❓",
-    st.questionSeconds > 0 && st.threadSeconds > 0 && "🐦",
+    st.questionSeconds > 0 && st.threadSeconds > 0 && "🦜",
     st.daySeconds > 0 && "☀️",
     st.nightSeconds > 0 && "🌙",
   ].filter(Boolean).join(" → ");

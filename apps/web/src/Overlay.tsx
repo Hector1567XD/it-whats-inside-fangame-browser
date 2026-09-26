@@ -21,7 +21,7 @@ export function PhaseBanner({ s, bodyName }: { s: StateView; bodyName: string })
       banner = { kind: "QUESTION", title: "LA PREGUNTA", sub: `Responde como ${bodyName}… o como tú 😏`, ms: 2600 };
       sfx.guess();
     } else if (s.phase === "THREAD") {
-      banner = { kind: "THREAD", title: "EL HILO", sub: "Comenta cada respuesta como si fuera X 🐦", ms: 2600 };
+      banner = { kind: "THREAD", title: "EL HILO", sub: "Todos a cotorrear cada respuesta 🦜", ms: 2600 };
       sfx.day();
     } else if (s.phase === "DAY") {
       banner = { kind: "DAY", title: `CHAT GLOBAL${cyc}`, sub: `Todos te ven como ${bodyName}`, ms: 2600 };
@@ -65,7 +65,7 @@ export function PhaseBanner({ s, bodyName }: { s: StateView; bodyName: string })
         {b.kind === "VOTE" && <div className="lens">🗳️</div>}
         {b.kind === "FINAL_VOTE" && <><div className="sunrays" /><div className="lens">⚖️</div></>}
         {b.kind === "QUESTION" && <div className="lens">❓</div>}
-        {b.kind === "THREAD" && <><div className="sunrays" /><div className="lens">🐦</div></>}
+        {b.kind === "THREAD" && <><div className="sunrays" /><div className="lens">🦜</div></>}
         {b.kind === "RESULTS" && <div className="lens">🥁</div>}
       </div>
       <h1 className="banner-title">{b.title}</h1>
@@ -93,11 +93,11 @@ export function Stars({ n }: { n: number }) {
 }
 
 /** Fase SWAP: la ruleta de cuerpos que termina en tu nuevo cuerpo. */
-export function SwapScreen({ players: all, mind, body, timer, role, reswap }: {
-  players: PlayerView[]; mind?: PlayerView; body?: PlayerView; timer: number; role: Role; reswap: boolean;
+export function SwapScreen({ players: all, mind, body, spectator, timer, role, reswap }: {
+  players: PlayerView[]; mind?: PlayerView; body?: PlayerView; spectator: boolean; timer: number; role: Role; reswap: boolean;
 }) {
   const players = all.filter((p) => !p.bodyOut);
-  if (mind?.out) {
+  if (spectator) {
     return (
       <div className="swap">
         <h1 className="swap-title">🧳 ¡RE-CAMBIO!</h1>

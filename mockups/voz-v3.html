@@ -1,0 +1,534 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MindSwap · Voz v3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Nunito:wght@600;800&display=swap" rel="stylesheet" />
+<style>
+/* Propuesta v3 (solo voz). Investigación + laboratorio. No toca el juego. */
+:root {
+  --card: rgba(40, 10, 80, 0.55); --line: rgba(255, 255, 255, 0.18); --muted: rgba(255, 255, 255, 0.72);
+  --accent: #5ee37a; --accent-d: #2fae4c; --yellow: #ffd23d; --red: #ff3d5a; --ink: #2a0d4d; --blue: #3dd6ff;
+}
+* { box-sizing: border-box; }
+html { background: #1a0838; }
+body { margin: 0; font-family: "Nunito", system-ui, sans-serif; color: #fff; background: linear-gradient(135deg, #1d0b4d, #3b1270 60%, #1a0838); background-attachment: fixed; min-height: 100vh; overflow-x: hidden; }
+h1, h2, h3, .lilita { font-family: "Lilita One", sans-serif; font-weight: 400; letter-spacing: 0.5px; }
+a { color: var(--yellow); }
+code { background: rgba(0, 0, 0, 0.3); padding: 0 5px; border-radius: 5px; font-size: 0.9em; }
+button { font: inherit; }
+.page { max-width: 1200px; margin: 0 auto; padding: 20px 16px 80px; }
+.hero { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; justify-content: space-between; }
+.hero h1 { margin: 0; font-size: clamp(30px, 5vw, 46px); text-shadow: 0 4px 0 var(--ink); transform: rotate(-1.5deg); }
+.hero h1 span { color: var(--yellow); }
+.hero p { margin: 6px 0 0; color: var(--muted); max-width: 720px; }
+.warn { background: var(--yellow); color: var(--ink); font-weight: 800; padding: 8px 14px; border-radius: 14px; box-shadow: 0 4px 0 #b8901a; font-size: 14px; }
+.nav { position: sticky; top: 0; z-index: 20; display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 0; margin: 10px 0; background: linear-gradient(#1d0b4d 75%, transparent); }
+.nav a { text-decoration: none; color: #fff; font-weight: 800; font-size: 13px; padding: 6px 12px; border-radius: 999px; border: 2px solid var(--line); background: rgba(255, 255, 255, 0.08); }
+.nav a:hover { background: var(--yellow); color: var(--ink); border-color: #fff; }
+section { margin: 26px 0; scroll-margin-top: 70px; }
+section > h2 { font-size: 28px; margin: 0 0 6px; }
+section > p.lead { margin: 0 0 14px; color: var(--muted); max-width: 900px; line-height: 1.45; }
+.card { background: var(--card); border: 2px solid var(--line); border-radius: 20px; padding: 14px 16px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 900px) { .grid3, .grid2 { grid-template-columns: 1fr; } }
+.tldr .card b.big { display: block; font-family: "Lilita One"; font-weight: 400; font-size: 30px; color: var(--yellow); line-height: 1.1; }
+.tldr .card p { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+.table-wrap { overflow-x: auto; border-radius: 16px; border: 2px solid var(--line); background: rgba(0, 0, 0, 0.22); }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 760px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; line-height: 1.35; }
+th { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; background: rgba(0, 0, 0, 0.2); }
+tr.rec td:first-child { box-shadow: inset 4px 0 0 var(--accent); }
+tr.no td { opacity: 0.72; }
+.tag { display: inline-block; font-size: 11px; font-weight: 800; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+.ok { background: rgba(94, 227, 122, 0.25); color: #b8f5c6; }
+.meh { background: rgba(255, 210, 61, 0.22); color: #ffe9a3; }
+.bad { background: rgba(255, 61, 90, 0.25); color: #ffc0ca; }
+.unv { background: rgba(255, 255, 255, 0.12); color: var(--muted); }
+ul.clean { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; line-height: 1.4; }
+ul.clean b { color: var(--yellow); }
+.tier { display: flex; flex-direction: column; gap: 6px; }
+.tier .n { font-family: "Lilita One"; font-size: 13px; color: var(--muted); letter-spacing: 1px; }
+.tier h3 { margin: 0; font-size: 22px; }
+.tier.rec { border-color: var(--accent); }
+.tier .row { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* idea de juego */
+.voice-map { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.vm { background: rgba(255, 255, 255, 0.06); border: 2px solid var(--line); border-radius: 16px; padding: 10px; display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; }
+.vm.me { border-color: var(--yellow); }
+.vm .avatar { width: 48px; height: 48px; border-radius: 50%; border: 3px solid #fff; overflow: hidden; display: grid; place-items: center; }
+.vm .avatar img { width: 88%; }
+.vm b { font-size: 14px; }
+.vm .voice { font-size: 12px; font-weight: 800; background: rgba(61, 214, 255, 0.18); color: #bff1ff; border-radius: 999px; padding: 1px 8px; }
+.call { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.tile { aspect-ratio: 4 / 3; border-radius: 18px; background: rgba(10, 8, 40, 0.6); border: 2px solid var(--line); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; position: relative; }
+.tile.speaking { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(94, 227, 122, 0.25); }
+.tile .avatar { width: 72px; height: 72px; border-radius: 50%; border: 3px solid #fff; overflow: hidden; display: grid; place-items: center; }
+.tile .avatar img { width: 88%; }
+.tile .lbl { font-weight: 800; font-size: 13px; }
+.tile .voice { position: absolute; top: 8px; left: 8px; font-size: 11px; font-weight: 800; background: rgba(0, 0, 0, 0.35); border-radius: 999px; padding: 1px 8px; }
+.bars { display: flex; gap: 3px; align-items: flex-end; height: 18px; }
+.bars i { width: 4px; background: var(--accent); border-radius: 2px; height: 4px; }
+.tile.speaking .bars i { animation: bar 0.6s ease-in-out infinite; }
+.bars i:nth-child(2) { animation-delay: 0.1s; } .bars i:nth-child(3) { animation-delay: 0.2s; } .bars i:nth-child(4) { animation-delay: 0.3s; } .bars i:nth-child(5) { animation-delay: 0.15s; }
+@keyframes bar { 50% { height: 18px; } }
+.ptt { margin-top: 10px; width: 100%; font-family: "Lilita One"; font-size: 20px; padding: 12px; border-radius: 16px; border: none; background: var(--yellow); color: var(--ink); box-shadow: 0 5px 0 #b8901a; cursor: pointer; user-select: none; }
+.ptt:active, .ptt.on { background: var(--accent); box-shadow: 0 2px 0 var(--accent-d); transform: translateY(3px); }
+
+/* arquitectura */
+.flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; }
+.box { flex: 1 1 150px; background: rgba(255, 255, 255, 0.07); border: 2px solid var(--line); border-radius: 14px; padding: 10px; font-size: 13px; line-height: 1.35; }
+.box b { display: block; font-size: 14px; margin-bottom: 2px; }
+.box.client { border-color: rgba(94, 227, 122, 0.6); }
+.box.cloud { border-color: rgba(61, 214, 255, 0.6); }
+.box.render { border-color: rgba(255, 210, 61, 0.6); }
+.arrow { align-self: center; font-size: 22px; color: var(--muted); }
+
+/* laboratorio */
+.lab { background: linear-gradient(135deg, #0d0b2e, #2b1760); border: 3px solid var(--line); border-radius: 22px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.lab .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.vbtn { font-weight: 800; border: 3px solid #fff; border-radius: 14px; padding: 8px 12px; cursor: pointer; background: rgba(255, 255, 255, 0.1); color: #fff; }
+.vbtn:disabled { opacity: 0.4; cursor: not-allowed; }
+.vbtn.on { background: var(--yellow); color: var(--ink); }
+.vbtn.primary { background: var(--accent); color: #103a1a; border-color: #fff; }
+.vbtn.stop { background: var(--red); }
+.meter { height: 10px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.meter div { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--yellow), var(--red)); transition: width 0.05s; }
+.status { font-size: 13px; color: var(--muted); min-height: 18px; }
+.readout { display: flex; gap: 10px; flex-wrap: wrap; font-size: 13px; }
+.readout span { background: rgba(0, 0, 0, 0.3); border-radius: 10px; padding: 3px 10px; }
+.readout b { color: var(--yellow); }
+.src { font-size: 12.5px; color: var(--muted); columns: 2; column-gap: 24px; }
+@media (max-width: 900px) { .src { columns: 1; } }
+.src li { break-inside: avoid; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="hero">
+    <div>
+      <h1>MindSwap · <span>Voz v3</span></h1>
+      <p>Propuesta solo de voz: servicios con API, costos, cómo disfrazar la voz (robot igual para todos, o voces tipo <b>Hombre 1 / Hombre 2 / Mujer 1 / Mujer 2</b>) y un laboratorio para probarlo con tu micrófono. Investigado el 26/09/2026.</p>
+    </div>
+    <div class="warn">🧪 Investigación. La voz queda en espera: no hay nada implementado en el juego.</div>
+  </div>
+
+  <nav class="nav">
+    <a href="#tldr">Resumen</a><a href="#idea">Idea de juego</a><a href="#niveles">3 niveles</a><a href="#infra">Servicios</a>
+    <a href="#ia">IA de voz</a><a href="#dsp">Librerías DSP</a><a href="#arq">Arquitectura</a><a href="#costos">Costos</a>
+    <a href="#riesgos">Riesgos</a><a href="#plan">Plan</a><a href="#lab">🎙️ Laboratorio</a><a href="#fuentes">Fuentes</a>
+  </nav>
+
+  <section id="tldr" class="tldr">
+    <h2>Resumen</h2>
+    <div class="grid3">
+      <div class="card"><b class="big">≈ $0 – 0,12</b><p>Costo por partida de 12 jugadores × 20 min con un SFU administrado (LiveKit / Cloudflare). Las primeras ~20 partidas al mes entran en el plan gratis de LiveKit.</p></div>
+      <div class="card"><b class="big">LiveKit + DSP en el navegador</b><p>La voz se disfraza <b>en el celular de quien habla</b>, antes de enviarla. Ningún proveedor trae un cambiador de voz nativo para web que sea fiable.</p></div>
+      <div class="card"><b class="big">IA en vivo: todavía no</b><p>Las APIs comerciales de speech-to-speech no son de verdad en tiempo real (ElevenLabs sube un archivo completo) o cuestan <b>$7–29 por partida</b>. La IA propia necesita GPU.</p></div>
+    </div>
+  </section>
+
+  <section id="idea">
+    <h2>💡 Idea de juego: "la voz es del cuerpo"</h2>
+    <p class="lead">En la película, al cambiar de cuerpo también cambias de voz. Propuesta: cada <b>cuerpo</b> tiene una voz fija (un preset que el server asigna al empezar la ronda) y la mente que lo habita habla con esa voz. Si Gabriel está en el cuerpo de Sofía, suena como "la voz de Sofía". Encaja con el juego, no revela nada (la voz va pegada al cuerpo, igual que el nombre y el avatar) y le da sentido a "Todos cambian": todos tienen que actuar <i>con voz ajena</i>.</p>
+    <div class="grid2">
+      <div class="card">
+        <h3 style="margin:0 0 8px">Voces por cuerpo (ejemplo, 6 jugadores)</h3>
+        <div class="voice-map" id="voiceMap"></div>
+        <p class="muted" style="font-size:13px;color:var(--muted);margin:10px 0 0">Con 12 jugadores y 4 presets se repetirían, así que se generan variantes (p. ej. 8 voces: H1–H4 y M1–M4 con tonos y formantes distintos). La voz de cada cuerpo es pública.</p>
+      </div>
+      <div class="card">
+        <h3 style="margin:0 0 8px">📞 "Llamada nocturna" (primera fase con voz)</h3>
+        <div class="call">
+          <div class="tile" id="tileA"><span class="voice">🎙️ Mujer 2</span><div class="avatar" style="background:#ff4d8d"><img src="https://api.dicebear.com/9.x/big-smile/svg?seed=sofia-mindswap" alt=""></div><span class="lbl">Tú · cuerpo de Sofía</span><span class="bars"><i></i><i></i><i></i><i></i><i></i></span></div>
+          <div class="tile speaking" id="tileB"><span class="voice">🎙️ Hombre 1</span><div class="avatar" style="background:#5ee37a"><img src="https://api.dicebear.com/9.x/big-smile/svg?seed=mateo-mindswap" alt=""></div><span class="lbl">Cuerpo de Mateo</span><span class="bars"><i></i><i></i><i></i><i></i><i></i></span></div>
+        </div>
+        <button class="ptt" id="ptt">Mantén para hablar 🎙️</button>
+        <ul class="clean" style="margin-top:10px;font-size:14px">
+          <li>Reemplaza (u ofrece como opción) el chat privado de la Noche: 1 a 1, <b>push-to-talk</b>, sin video. Solo se ven los avatares de los cuerpos.</li>
+          <li>Se mantiene la cuota: "puedes llamar a 2 personas; contestar es gratis".</li>
+          <li>Después, si funciona: la Sala de voz grupal para el Día.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="niveles">
+    <h2>3 niveles de disfraz</h2>
+    <div class="grid3">
+      <div class="card tier">
+        <span class="n">NIVEL 1</span><h3>🤖 Robot igual para todos</h3>
+        <p style="margin:0">Vocoder: tu voz "toca" una portadora de tono fijo. Todos suenan al mismo robot.</p>
+        <div class="row"><span class="tag ok">Anonimato alto</span><span class="tag ok">Web Audio nativo</span><span class="tag ok">Funciona en Safari</span><span class="tag meh">Suena a robot</span></div>
+        <p style="margin:0;font-size:13px;color:var(--muted)">Sin librerías · +~10 ms · costo $0</p>
+      </div>
+      <div class="card tier rec">
+        <span class="n">NIVEL 2 · RECOMENDADO</span><h3>🎭 Voces H1/H2/M1/M2</h3>
+        <p style="margin:0">Cambio de <b>tono</b> + <b>formantes</b> por separado (signalsmith-stretch, MIT) + calibración de tu tono base.</p>
+        <div class="row"><span class="tag ok">Suena humano</span><span class="tag ok">Voz por cuerpo</span><span class="tag meh">Camufla, no anonimiza</span><span class="tag meh">Artefactos leves</span></div>
+        <p style="margin:0;font-size:13px;color:var(--muted)">~110 KB de WASM · +20–60 ms · costo $0</p>
+      </div>
+      <div class="card tier">
+        <span class="n">NIVEL 3 · MÁS ADELANTE</span><h3>🧠 IA (RVC / LLVC)</h3>
+        <p style="margin:0">Modelos entrenados con 4–8 voces sintéticas propias. Suena natural.</p>
+        <div class="row"><span class="tag ok">Muy natural</span><span class="tag bad">GPU en servidor</span><span class="tag bad">+200–500 ms</span><span class="tag bad">No en el navegador</span></div>
+        <p style="margin:0;font-size:13px;color:var(--muted)">Solo si el nivel 2 no convence</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="infra">
+    <h2>Servicios de audio en tiempo real (SFU / TURN)</h2>
+    <p class="lead">Con 12 personas no sirve el P2P en malla (cada celular enviaría 11 copias). Hace falta un <b>SFU</b>: un servidor que recibe una sola copia de cada jugador y la reparte. Render no deja pasar UDP, así que el audio tiene que ir por uno de estos servicios.</p>
+    <div class="table-wrap"><table>
+      <tr><th>Servicio</th><th>SDK web</th><th>Precio (solo audio)</th><th>Gratis</th><th>Cambiador de voz en web</th><th>Veredicto</th></tr>
+      <tr class="rec"><td><b>LiveKit Cloud</b></td><td>✅ <code>livekit-client</code> + componentes React</td><td>$0,0005 / participante-min (Build/Ship); $0,0004 en Scale <span class="tag ok">verificado</span></td><td>5.000 participante-min/mes, sin tarjeta</td><td>No trae, pero <code>track.setProcessor()</code> deja enchufar nuestro AudioWorklet antes de publicar</td><td><span class="tag ok">El que mejor encaja</span></td></tr>
+      <tr><td><b>Cloudflare RealtimeKit</b> (antes Dyte)</td><td>✅</td><td>$0,0005 / participante-min <span class="tag ok">verificado</span></td><td><span class="tag unv">no confirmado</span></td><td>No</td><td><span class="tag ok">Alternativa</span></td></tr>
+      <tr><td><b>Cloudflare Realtime SFU + TURN</b></td><td>API WebRTC nativa + HTTP (más código)</td><td>$0,05 / GB de salida; TURN gratis junto al SFU <span class="tag ok">verificado</span></td><td>1.000 GB/mes</td><td>No</td><td><span class="tag meh">Lo más barato, más trabajo</span></td></tr>
+      <tr><td><b>Daily</b></td><td>✅ <code>@daily-co/daily-js</code></td><td>$0,00099 → $0,00036 / participante-min según volumen <span class="tag ok">verificado</span></td><td>10.000 participante-min/mes</td><td>No</td><td><span class="tag ok">Alternativa</span></td></tr>
+      <tr><td><b>100ms</b></td><td>✅</td><td>~$0,001 / participante-min <span class="tag ok">verificado</span></td><td>10.000 min/mes</td><td>No</td><td><span class="tag ok">Alternativa</span></td></tr>
+      <tr><td><b>Agora</b></td><td>✅ Web SDK 4.x</td><td>~$0,99 / 1.000 min <span class="tag meh">fuentes secundarias</span></td><td>10.000 min/mes</td><td>Los presets de voz ("girl", "uncle") <b>no existen en Web</b>. La extensión "Dubbing AI Voice Changer" dice tener versión web <span class="tag unv">no verificado</span></td><td><span class="tag meh">Solo si Dubbing AI funciona</span></td></tr>
+      <tr class="no"><td><b>Twilio Video</b></td><td>✅</td><td>~$0,004 / participante-min</td><td>No</td><td>No</td><td>Revirtieron su cierre (oct. 2024). Viable, pero caro</td></tr>
+      <tr class="no"><td><b>Vonage Video</b></td><td>✅</td><td>~$0,0041 / participante-min <span class="tag unv">no verificado</span></td><td>—</td><td>No</td><td>Caro</td></tr>
+      <tr class="no"><td><b>Metered TURN</b> (solo TURN)</td><td>—</td><td>Growth $99/mes por 150 GB</td><td>500 MB</td><td>—</td><td>Solo para P2P, que no sirve con 12</td></tr>
+    </table></div>
+  </section>
+
+  <section id="ia">
+    <h2>APIs de IA "speech-to-speech"</h2>
+    <p class="lead">Convierten tu voz en otra. Suenan bien, pero para una llamada en vivo con 12 personas hoy <b>no sirven</b>: o trabajan sobre archivos, o solo corren en escritorio, o no publican precio ni latencia.</p>
+    <div class="table-wrap"><table>
+      <tr><th>Servicio</th><th>¿En vivo?</th><th>¿Web?</th><th>Precio</th><th>Nota</th></tr>
+      <tr><td><b>ElevenLabs Voice Changer</b></td><td>❌ POST con archivo completo, respuesta en streaming</td><td>Por API</td><td>$0,12 / min <span class="tag ok">verificado</span></td><td>No hay WebSocket bidireccional para convertir voz</td></tr>
+      <tr><td><b>Voicemod SDK</b></td><td>✅ 42 voice skins</td><td>❌ La Control API maneja la app de escritorio</td><td>Gratis hasta 10k MAU <span class="tag unv">no verificado</span></td><td>Habría que preguntarle a ventas si hay versión web</td></tr>
+      <tr><td><b>Cartesia</b></td><td>Sonic es TTS; el voice changer es para audio grabado</td><td>—</td><td>—</td><td><span class="tag unv">no verificado</span></td></tr>
+      <tr><td><b>Resemble AI</b></td><td>Dice tener STS "streaming-first"</td><td>—</td><td>Sin precio de STS en vivo</td><td>Las cifras de 75–200 ms son de TTS <span class="tag unv">no verificado</span></td></tr>
+      <tr><td><b>Respeecher</b></td><td>El tiempo real es de TTS</td><td>—</td><td>—</td><td>El STS está orientado a producción</td></tr>
+      <tr><td><b>Voice.ai API</b></td><td>Dice &lt;150 ms</td><td>SDK TypeScript</td><td>Sin precio</td><td>Marketing <span class="tag unv">no verificado</span></td></tr>
+      <tr><td><b>Krisp</b></td><td>✅ SDK JS/WASM en navegador</td><td>✅</td><td>—</td><td>Convierte el <b>acento</b> y conserva tu voz: no sirve como disfraz</td></tr>
+    </table></div>
+    <div class="grid2" style="margin-top:14px">
+      <div class="card"><h3 style="margin:0 0 6px">Open source / auto-hosteado</h3><ul class="clean">
+        <li><b>RVC / w-okada voice-changer</b>: calidad alta, un modelo por voz (ideal para H1/H2/M1/M2). Necesita GPU: 80–200 ms con una RTX 3060. No encontré RVC en tiempo real dentro del navegador.</li>
+        <li><b>LLVC (Koe AI, MIT)</b>: promete &lt;20 ms y ~2,8× tiempo real en CPU, pero convierte a <i>una</i> sola voz por modelo (habría que entrenar 4) y el repo tiene poca actividad. Es lo único que podría correr en una CPU de servidor barata; 12 voces a la vez es dudoso.</li>
+        <li><b>Seed-VC</b>: 400–650 ms con GPU. Demasiado lento.</li>
+      </ul></div>
+      <div class="card"><h3 style="margin:0 0 6px">Si algún día se usa IA</h3><ul class="clean">
+        <li>El audio de cada jugador iría: celular → servidor GPU → SFU. Suma <b>200–500 ms</b> y ~<b>$0,05–0,12 por minuto hablado por jugador</b>.</li>
+        <li>No corre en Render. Habría que usar una GPU por horas (RunPod, Modal, etc.) o una máquina dedicada.</li>
+        <li>Conviene entrenar voces <b>sintéticas propias</b> (TTS con licencia) y no voces de personas reales.</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <section id="dsp">
+    <h2>Librerías DSP para el navegador (nivel 2)</h2>
+    <div class="table-wrap"><table>
+      <tr><th>Librería</th><th>Tono en vivo</th><th>Formantes</th><th>Licencia</th><th>Veredicto</th></tr>
+      <tr class="rec"><td><b>signalsmith-stretch</b> 1.3.2</td><td>✅ AudioWorklet + WASM, con entrada de micrófono</td><td>✅ <code>formantSemitones</code>, <code>formantBaseHz</code>, <code>formantCompensation</code></td><td>MIT</td><td><span class="tag ok">Recomendado</span> (el propio autor dice que los formantes son "menos precisos que los algoritmos monofónicos")</td></tr>
+      <tr><td><b>rubberband-web</b></td><td>✅</td><td>No confirmado en web</td><td><span class="tag bad">GPL</span> o comercial</td><td>Riesgo de licencia, sin mantenimiento hace ~3 años</td></tr>
+      <tr><td><b>Tone.js PitchShift</b></td><td>✅ (granular)</td><td>❌</td><td>MIT</td><td>Suena metálico: sirve para efectos, no para voces creíbles</td></tr>
+      <tr><td><b>soundtouchjs-audio-worklet</b></td><td>Pensado para reproducción</td><td>❌</td><td>LGPL</td><td>Poco adecuado para micrófono</td></tr>
+      <tr><td><b>phaze</b></td><td>✅ phase vocoder</td><td>❌</td><td>—</td><td>Demo de 2021</td></tr>
+      <tr><td><b>Web Audio nativo</b></td><td>Vocoder / ring-mod</td><td>—</td><td>—</td><td><span class="tag ok">Nivel 1</span>, cero dependencias</td></tr>
+    </table></div>
+    <div class="card" style="margin-top:14px">
+      <h3 style="margin:0 0 6px">💡 La clave del nivel 2: calibración</h3>
+      <p style="margin:0;line-height:1.45">Un preset fijo ("baja 4 semitonos") suena distinto en cada persona: a un hombre de voz grave lo deja en el sótano. Lo correcto es que cada jugador diga "hola, soy yo" al entrar, medir su <b>tono base</b> (F0) y calcular cuánto hay que moverlo para llegar al tono del preset (H1 ≈ 105 Hz, H2 ≈ 135 Hz, M1 ≈ 200 Hz, M2 ≈ 240 Hz). Los formantes se mueven en la misma dirección, pero menos. Así, dos personas en el cuerpo "Mujer 1" suenan parecido. El laboratorio de abajo hace exactamente esto.</p>
+    </div>
+  </section>
+
+  <section id="arq">
+    <h2>Arquitectura propuesta</h2>
+    <div class="flow">
+      <div class="box client"><b>🎙️ Micrófono</b><code>getUserMedia</code> con echoCancellation</div>
+      <div class="arrow">→</div>
+      <div class="box client"><b>🎭 Disfraz (en el cliente)</b>AudioWorklet con el preset del <b>cuerpo</b> (lo dicta el server, no el cliente)</div>
+      <div class="arrow">→</div>
+      <div class="box client"><b>📤 Publicar</b><code>MediaStreamDestination</code> → LiveKit <code>setProcessor</code> / <code>publishTrack</code></div>
+      <div class="arrow">→</div>
+      <div class="box cloud"><b>☁️ SFU (LiveKit)</b>Reparte el audio ya disfrazado. UDP + TURN por el 443</div>
+      <div class="arrow">→</div>
+      <div class="box client"><b>🔊 Los demás</b>Oyen la voz del cuerpo</div>
+    </div>
+    <div class="flow" style="margin-top:10px">
+      <div class="box render"><b>🟨 Colyseus en Render (lo que ya existe)</b>Emite el token de LiveKit por sala y por fase (<code>livekit-server-sdk</code>), asigna voz a cada cuerpo y decide quién puede hablar con quién. Nunca toca el audio.</div>
+      <div class="box render"><b>🔐 Identidad en LiveKit = el cuerpo</b>La identity y la metadata del participante las ven todos. Tienen que ser el <b>id del cuerpo</b>, nunca el de la mente, o se filtra quién es quién.</div>
+      <div class="box render"><b>🌙 Noche 1 a 1</b>Una sala de LiveKit por pareja (<code>CODE-n1-hash</code>) con tokens solo para esos 2. Al terminar la fase, el server revoca los tokens.</div>
+    </div>
+  </section>
+
+  <section id="costos">
+    <h2>Costo por partida (12 jugadores × 20 min = 240 participante-min)</h2>
+    <div class="table-wrap"><table>
+      <tr><th>Opción</th><th>Costo por partida</th><th>Partidas gratis al mes</th></tr>
+      <tr class="rec"><td>LiveKit Cloud</td><td>≈ $0,12</td><td>≈ 20 (5.000 min)</td></tr>
+      <tr><td>Cloudflare RealtimeKit</td><td>≈ $0,12</td><td>no confirmado</td></tr>
+      <tr><td>Cloudflare SFU a bajo nivel</td><td>0,6–1 GB → $0 dentro del tramo gratis; después ≈ $0,03–0,05</td><td>≈ 1.000+ (1 TB)</td></tr>
+      <tr><td>Daily / 100ms / Agora</td><td>≈ $0,24</td><td>≈ 41 (10.000 min)</td></tr>
+      <tr><td>Disfraz DSP en el cliente (niveles 1 y 2)</td><td>$0</td><td>—</td></tr>
+      <tr class="no"><td>IA comercial tipo ElevenLabs ($0,12/min hablado)</td><td>$7–29 (y hoy no funciona en vivo)</td><td>—</td></tr>
+    </table></div>
+    <p class="lead" style="margin-top:8px">Si la voz se usa solo en la Noche 1 a 1 (~90 s por fase), el consumo baja mucho: ~12 × 1,5 min ≈ 18 participante-min por partida, así que en la práctica sale gratis.</p>
+  </section>
+
+  <section id="riesgos">
+    <h2>Riesgos y problemas conocidos</h2>
+    <div class="grid2">
+      <div class="card"><ul class="clean">
+        <li><b>El disfraz tiene que hacerse en quien habla.</b> Si se procesa en quien escucha, la voz real viaja por la red y cualquiera con DevTools la oye.</li>
+        <li><b>El preset lo asigna el server</b> según el cuerpo; el cliente no lo elige.</li>
+        <li><b>La identity de LiveKit debe ser el cuerpo</b>, no la mente.</li>
+        <li><b>Render no deja pasar UDP</b>: el SFU y el TURN van en el proveedor. Colyseus solo emite tokens.</li>
+      </ul></div>
+      <div class="card"><ul class="clean">
+        <li><b>iOS Safari</b>: el AudioContext exige un toque del usuario; varios <code>getUserMedia</code> seguidos silencian pistas anteriores. Hay que usar AudioWorklet (no <code>MediaStreamTrackProcessor</code>). Probar en iPhone real.</li>
+        <li><b>CPU en móviles de gama baja</b>: un worklet de voz es liviano; la IA en el celular no es viable.</li>
+        <li><b>El DSP camufla, no anonimiza</b>: el ritmo, el acento y las muletillas pasan igual (eso también es parte del juego). El robot del nivel 1 anonimiza más.</li>
+        <li><b>Eco</b>: recomendar audífonos; el push-to-talk ayuda mucho.</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <section id="plan">
+    <h2>Plan sugerido (cuando se retome la voz)</h2>
+    <div class="table-wrap"><table>
+      <tr><th>Paso</th><th>Qué</th><th>Esfuerzo</th><th>Infra</th></tr>
+      <tr><td>0</td><td>Probar el laboratorio de abajo con amigos: ¿se reconoce a la gente con el robot? ¿Y con los presets?</td><td>Hoy</td><td>$0</td></tr>
+      <tr class="rec"><td>1</td><td>📞 Llamada nocturna 1 a 1 con LiveKit (plan gratis) + robot + push-to-talk</td><td>3–5 días</td><td>$0</td></tr>
+      <tr><td>2</td><td>🎭 Voz por cuerpo: calibración + presets H1–H4 / M1–M4 con signalsmith-stretch</td><td>+3–5 días</td><td>$0</td></tr>
+      <tr><td>3</td><td>☀️ Sala de voz grupal para el Día (mute, quién habla, límites)</td><td>+1 semana</td><td>~$0,12 por partida</td></tr>
+      <tr class="no"><td>4</td><td>🧠 IA (RVC/LLVC) solo si el nivel 2 no convence</td><td>Semanas</td><td>GPU</td></tr>
+    </table></div>
+  </section>
+
+  <section id="lab">
+    <h2>🎙️ Laboratorio</h2>
+    <p class="lead">Todo se procesa en tu navegador; no se envía nada. <b>Usa audífonos</b> o habrá retroalimentación. Primero calibra tu tono y después prueba las voces. Las voces H/M usan signalsmith-stretch desde jsDelivr (la primera vez tarda un momento en cargar).</p>
+    <div class="lab">
+      <div class="row">
+        <button class="vbtn primary" id="calib">① Calibrar mi tono (habla 3 s)</button>
+        <span class="status" id="calibStatus">Di algo como "hola, soy yo y esta es mi voz".</span>
+      </div>
+      <div class="readout"><span>Tu tono base: <b id="f0">—</b></span><span>Preset: <b id="pname">—</b></span><span>Tono: <b id="semi">—</b></span><span>Formantes: <b id="form">—</b></span><span>Latencia del efecto: <b id="lat">—</b></span></div>
+      <div class="row" id="presetRow">
+        <button class="vbtn" data-p="H1">👨 Hombre 1</button>
+        <button class="vbtn" data-p="H2">🧔 Hombre 2</button>
+        <button class="vbtn" data-p="M1">👩 Mujer 1</button>
+        <button class="vbtn" data-p="M2">👱‍♀️ Mujer 2</button>
+        <button class="vbtn" data-p="robot">🤖 Robot (nivel 1)</button>
+        <button class="vbtn" data-p="raw">🙂 Mi voz</button>
+        <button class="vbtn stop" id="stop">⏹ Parar</button>
+      </div>
+      <div class="meter"><div id="meter"></div></div>
+      <div class="status" id="status">Sin calibrar se usa un tono base de 150 Hz.</div>
+    </div>
+  </section>
+
+  <section id="fuentes">
+    <h2>Fuentes</h2>
+    <ul class="src">
+      <li><a href="https://livekit.com/pricing">LiveKit · precios</a></li>
+      <li><a href="https://github.com/livekit/track-processors-js">LiveKit · track processors</a></li>
+      <li><a href="https://developers.cloudflare.com/realtime/sfu/pricing">Cloudflare Realtime SFU · precios</a></li>
+      <li><a href="https://developers.cloudflare.com/realtime/realtimekit/pricing">Cloudflare RealtimeKit · precios</a></li>
+      <li><a href="https://www.daily.co/pricing/video-sdk/">Daily · precios</a></li>
+      <li><a href="https://www.100ms.live/pricing">100ms · precios</a></li>
+      <li><a href="https://docs.agora.io/en/realtime-media/rtc/reference/pricing">Agora · precios</a></li>
+      <li><a href="https://docs.agora.io/en/realtime-media/voice/build/enhance-the-audio-experience/voice-effects">Agora · efectos de voz (sin Web)</a></li>
+      <li><a href="https://docs.agora.io/en/extensions-marketplace/develop/integrate/dubbing-voice-changer">Agora · Dubbing AI Voice Changer</a></li>
+      <li><a href="https://www.twilio.com/en-us/changelog/-twilio-video-will-remain-a-standalone-product">Twilio Video sigue</a></li>
+      <li><a href="https://www.vonage.com/communications-apis/video/pricing/">Vonage Video · precios</a></li>
+      <li><a href="https://www.metered.ca/stun-turn">Metered TURN</a></li>
+      <li><a href="https://elevenlabs.io/docs/api-reference/speech-to-speech/stream">ElevenLabs · STS stream</a></li>
+      <li><a href="https://control-api.voicemod.net/">Voicemod Control API</a></li>
+      <li><a href="https://www.respeecher.com/real-time-tts-api">Respeecher · TTS en tiempo real</a></li>
+      <li><a href="https://voice.ai/api">Voice.ai API</a></li>
+      <li><a href="https://sdk-docs.krisp.ai/docs/rtc-accent-conversion-web-browser-sdk">Krisp · conversión de acento web</a></li>
+      <li><a href="https://github.com/w-okada/voice-changer">w-okada voice-changer (RVC)</a></li>
+      <li><a href="https://github.com/KoeAI/LLVC">LLVC</a> · <a href="https://arxiv.org/abs/2311.00873">paper</a></li>
+      <li><a href="https://github.com/Plachtaa/seed-vc">Seed-VC</a></li>
+      <li><a href="https://github.com/Signalsmith-Audio/signalsmith-stretch">signalsmith-stretch</a> · <a href="https://www.npmjs.com/package/signalsmith-stretch">npm</a></li>
+      <li><a href="https://github.com/delude88/rubberband-web">rubberband-web</a></li>
+      <li><a href="https://tonejs.github.io/docs/15.1.22/classes/PitchShift.html">Tone.js PitchShift</a></li>
+      <li><a href="https://webrtchacks.com/guide-to-safari-webrtc/">Guía de WebRTC en Safari</a></li>
+      <li><a href="https://feedback.render.com/features/p/support-udp">Render · soporte UDP (pedido)</a></li>
+    </ul>
+    <p class="lead" style="margin-top:10px"><b>Sin verificar:</b> si Agora Dubbing AI funciona en web y cuánto cuesta; si el SDK de Voicemod tiene versión web; el STS en vivo de Cartesia, Resemble y Voice.ai; si RealtimeKit tiene plan gratis; el rendimiento de LLVC con varias voces en una CPU barata.</p>
+  </section>
+</div>
+
+<script type="module">
+import SignalsmithStretch from "https://cdn.jsdelivr.net/npm/signalsmith-stretch@1.3.2/SignalsmithStretch.mjs";
+const $ = (id) => document.getElementById(id);
+
+// ---- mapa de voces por cuerpo (ejemplo) ----
+const BODIES = [
+  ["Sofía", "#ff4d8d", "big-smile", "Mujer 2", true], ["Gabriel", "#3dd6ff", "adventurer", "Hombre 2"], ["Lucía", "#ffd23d", "croodles", "Mujer 1"],
+  ["Mateo", "#5ee37a", "big-smile", "Hombre 1"], ["Vale", "#b36bff", "adventurer", "Mujer 3"], ["Nico", "#ff8a3d", "croodles", "Hombre 3"],
+];
+$("voiceMap").innerHTML = BODIES.map(([n, c, s, v, me]) => `
+  <div class="vm${me ? " me" : ""}"><div class="avatar" style="background:${c}"><img src="https://api.dicebear.com/9.x/${s}/svg?seed=${n.toLowerCase()}-mindswap" alt=""></div>
+  <b>Cuerpo de ${n}</b><span class="voice">🎙️ ${v}</span>${me ? '<small style="color:var(--yellow);font-weight:800">tú estás aquí</small>' : ""}</div>`).join("");
+let turn = 0;
+setInterval(() => { turn ^= 1; $("tileA").classList.toggle("speaking", turn === 1 || $("ptt").classList.contains("on")); $("tileB").classList.toggle("speaking", turn === 0); }, 2200);
+const ptt = $("ptt");
+const on = () => { ptt.classList.add("on"); $("tileA").classList.add("speaking"); };
+const off = () => ptt.classList.remove("on");
+ptt.addEventListener("pointerdown", on); ptt.addEventListener("pointerup", off); ptt.addEventListener("pointerleave", off);
+
+// ---- laboratorio ----
+const PRESETS = {
+  H1: { name: "Hombre 1", f0: 105, form: -3 },
+  H2: { name: "Hombre 2", f0: 135, form: -1.5 },
+  M1: { name: "Mujer 1", f0: 200, form: 2 },
+  M2: { name: "Mujer 2", f0: 240, form: 3.5 },
+};
+let base = 150; // Hz, se reemplaza al calibrar
+let ctx, stream, src, analyser, stretch, chainOut, raf, current = null, robotNodes = [];
+
+async function ensureMic() {
+  if (ctx) return;
+  stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+  ctx = new AudioContext();
+  src = ctx.createMediaStreamSource(stream);
+  analyser = ctx.createAnalyser(); analyser.fftSize = 2048;
+  src.connect(analyser);
+  chainOut = ctx.createGain();
+  const comp = ctx.createDynamicsCompressor();
+  chainOut.connect(comp); comp.connect(ctx.destination);
+  const meterBuf = new Uint8Array(512);
+  const meterAn = ctx.createAnalyser(); meterAn.fftSize = 512; chainOut.connect(meterAn);
+  const tick = () => {
+    meterAn.getByteTimeDomainData(meterBuf);
+    let p = 0; for (const v of meterBuf) p = Math.max(p, Math.abs(v - 128));
+    $("meter").style.width = Math.min(100, p / 1.28) + "%";
+    raf = requestAnimationFrame(tick);
+  };
+  tick();
+}
+
+/** Tono (F0) por autocorrelación de un cuadro de audio. Devuelve 0 si es silencio o ruido. */
+function detectF0(buf, rate) {
+  let rms = 0; for (const v of buf) rms += v * v;
+  if (Math.sqrt(rms / buf.length) < 0.015) return 0;
+  const minLag = Math.floor(rate / 400), maxLag = Math.floor(rate / 70);
+  let best = 0, bestLag = 0;
+  for (let lag = minLag; lag <= maxLag; lag++) {
+    let sum = 0;
+    for (let i = 0; i < buf.length - lag; i++) sum += buf[i] * buf[i + lag];
+    if (sum > best) { best = sum; bestLag = lag; }
+  }
+  let energy = 0; for (const v of buf) energy += v * v;
+  return best / energy > 0.35 && bestLag ? rate / bestLag : 0;
+}
+
+$("calib").onclick = async () => {
+  try { await ensureMic(); } catch (e) { $("calibStatus").textContent = "No se pudo abrir el micrófono: " + e.name; return; }
+  await ctx.resume();
+  $("calib").disabled = true;
+  const buf = new Float32Array(analyser.fftSize);
+  const found = [];
+  const t0 = performance.now();
+  await new Promise((done) => {
+    const step = () => {
+      analyser.getFloatTimeDomainData(buf);
+      const f = detectF0(buf, ctx.sampleRate);
+      if (f) found.push(f);
+      const left = Math.max(0, 3 - (performance.now() - t0) / 1000);
+      $("calibStatus").textContent = `Escuchando… ${left.toFixed(1)} s (${found.length} muestras con voz)`;
+      left > 0 ? requestAnimationFrame(step) : done();
+    };
+    step();
+  });
+  $("calib").disabled = false;
+  if (found.length < 10) { $("calibStatus").textContent = "No te escuché bien. Acércate al micrófono e intenta de nuevo."; return; }
+  found.sort((a, b) => a - b);
+  base = found[Math.floor(found.length / 2)];
+  $("f0").textContent = `${Math.round(base)} Hz`;
+  $("calibStatus").textContent = "✅ Listo. Ahora prueba las voces.";
+  if (current && PRESETS[current]) applyPreset(current);
+};
+
+function disconnectAll() {
+  try { src?.disconnect(); } catch {}
+  src?.connect(analyser);
+  try { stretch?.disconnect(); } catch {}
+  robotNodes.forEach((n) => { try { n.stop?.(); n.disconnect(); } catch {} });
+  robotNodes = [];
+}
+
+async function applyPreset(p) {
+  await ensureMic(); await ctx.resume();
+  disconnectAll();
+  current = p;
+  document.querySelectorAll("#presetRow [data-p]").forEach((b) => b.classList.toggle("on", b.dataset.p === p));
+  if (p === "raw") {
+    src.connect(chainOut); chainOut.gain.value = 1;
+    setReadout("Mi voz", "0", "0", "0 ms");
+    $("status").textContent = "🙂 Tu voz sin efecto, para comparar.";
+  } else if (p === "robot") {
+    buildRobot();
+    setReadout("Robot", "fijo 110 Hz", "—", "~10 ms");
+    $("status").textContent = "🤖 Vocoder: todos sonarían igual a este robot.";
+  } else {
+    if (!stretch) {
+      $("status").textContent = "Cargando signalsmith-stretch…";
+      // En navegadores sin AudioWorklet+WASM funcional (p. ej. Chrome headless) la librería nunca responde.
+      stretch = await Promise.race([
+        SignalsmithStretch(ctx),
+        new Promise((_, fail) => setTimeout(() => fail(new Error("signalsmith-stretch no arrancó en 10 s. Prueba en Chrome, Edge o Firefox de escritorio.")), 10000)),
+      ]);
+    }
+    const pr = PRESETS[p];
+    const semitones = 12 * Math.log2(pr.f0 / base);
+    // Los formantes se mueven en la dirección del preset (voz de "otro cuerpo"), no tanto como el tono.
+    stretch.schedule({ active: true, semitones, formantSemitones: pr.form, formantCompensation: true, formantBaseHz: base });
+    src.connect(stretch); stretch.connect(chainOut); chainOut.gain.value = 1.2;
+    setReadout(pr.name, (semitones >= 0 ? "+" : "") + semitones.toFixed(1) + " st", (pr.form >= 0 ? "+" : "") + pr.form + " st", Math.round(stretch.latency() * 1000) + " ms");
+    $("status").textContent = `🎭 ${pr.name}: de ${Math.round(base)} Hz a ~${pr.f0} Hz.`;
+  }
+}
+
+function setReadout(name, semi, form, lat) { $("pname").textContent = name; $("semi").textContent = semi; $("form").textContent = form; $("lat").textContent = lat; }
+
+function buildRobot() {
+  const carrier = ctx.createOscillator(); carrier.type = "sawtooth"; carrier.frequency.value = 110;
+  const nb = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate); const d = nb.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  const noise = ctx.createBufferSource(); noise.buffer = nb; noise.loop = true;
+  const ng = ctx.createGain(); ng.gain.value = 0.25;
+  const mix = ctx.createGain();
+  carrier.connect(mix); noise.connect(ng); ng.connect(mix);
+  const curve = new Float32Array(1024); for (let i = 0; i < 1024; i++) curve[i] = Math.abs(i / 511.5 - 1);
+  const BANDS = 22, LO = 90, HI = 7000;
+  robotNodes.push(carrier, noise, ng, mix);
+  for (let i = 0; i < BANDS; i++) {
+    const f = LO * Math.pow(HI / LO, i / (BANDS - 1));
+    const mod = ctx.createBiquadFilter(); mod.type = "bandpass"; mod.frequency.value = f; mod.Q.value = 7;
+    const rect = ctx.createWaveShaper(); rect.curve = curve;
+    const env = ctx.createBiquadFilter(); env.type = "lowpass"; env.frequency.value = 35;
+    const eg = ctx.createGain(); eg.gain.value = 10;
+    src.connect(mod); mod.connect(rect); rect.connect(env); env.connect(eg);
+    const car = ctx.createBiquadFilter(); car.type = "bandpass"; car.frequency.value = f; car.Q.value = 7;
+    const vca = ctx.createGain(); vca.gain.value = 0;
+    mix.connect(car); car.connect(vca); eg.connect(vca.gain); vca.connect(chainOut);
+    robotNodes.push(mod, rect, env, eg, car, vca);
+  }
+  carrier.start(); noise.start();
+  chainOut.gain.value = 2.5;
+}
+
+document.querySelectorAll("#presetRow [data-p]").forEach((b) => (b.onclick = () => applyPreset(b.dataset.p).catch((e) => { $("status").textContent = "Error: " + e.message; })));
+$("stop").onclick = () => {
+  disconnectAll(); current = null;
+  document.querySelectorAll("#presetRow [data-p]").forEach((b) => b.classList.remove("on"));
+  $("status").textContent = "Parado.";
+};
+</script>
+</body>
+</html>

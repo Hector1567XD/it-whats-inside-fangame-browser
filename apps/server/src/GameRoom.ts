@@ -63,7 +63,8 @@ export type ResultsPayload =
       ejections: Ejection[]; points: Record<string, number>;
     };
 
-type ChatMsg = { fromBody: string; real: boolean; tag: string; text: string; ts: number };
+type Quote = { id: string; body: string; text: string }; // cotorreo citado en el chat global
+type ChatMsg = { fromBody: string; real: boolean; tag: string; text: string; ts: number; quote?: Quote };
 type DmLog = { a: string; b: string; fromBody: string; text: string; ts: number }; // a = mente que escribe, b = destino
 
 const PLAYING: Phase[] = ["SWAP", "QUESTION", "THREAD", "DAY", "NIGHT", "UNMASK", "VOTE", "VERDICT", "GUESS", "FINAL_VOTE"];
@@ -88,11 +89,16 @@ export class GameRoom extends Room<GameState> {
   private immutableId = ""; // modos Inmutables: quién nunca cambia
   private lastImmutable = "";
   private dmPairs = new Set<string>(); // conversaciones abiertas esta noche ("a|b" ordenado)
+  // Mentes expulsadas SIN revelar (votaciones intermedias de los Inmutables): el cuerpo queda como
+  // fantasma y nadie sabe qué alma tenía. En el estado público no se marcan `out`; se revelan al final.
+  private hiddenOut = new Set<string>();
   private initiated = new Map<string, number>(); // mindId -> chats que inició esta noche
   private dmLog: DmLog[] = [];
   private chatLog: ChatMsg[] = [];
   private answers = new Map<string, string>(); // mindId -> respuesta a La Pregunta
   private likedBy = new Map<string, Set<string>>(); // post/reply id -> mentes que dieron like
+  private susBy = new Map<string, Set<string>>(); // post/reply id -> mentes que marcaron 🤨
+  private lastTyping = new Map<string, number>();
   private usedQuestions = new Set<string>();
   private seq = 0;
   private guesses = new Map<string, Record<string, string>>(); // mindId -> { bodyId: mindId }
@@ -115,7 +121,7 @@ export class GameRoom extends Room<GameState> {
 
     this.onMessage("whoami", (client) => this.sendIdentity(client));
 
-    this.onMessage("chat", (client, { text }: { text: string }) => {
+    this.onMessage("chat", (client, { text, quote }: { text: string; quote?: string }) => {
       const t = clean(text);
       const ph = this.state.phase;
       if (!t || !["LOBBY", "DAY", "RESULTS"].includes(ph)) return;
@@ -126,6 +132,9 @@ export class GameRoom extends Room<GameState> {
       const cyc = this.state.totalCycles > 1 ? ` · ciclo ${this.state.cycle}` : "";
       const tag = ph === "DAY" ? `☀️ Chat global${cyc}` : ph === "RESULTS" ? "🏆 Resultados" : "🛋️ Sala de espera";
       const msg: ChatMsg = { fromBody, real, tag, text: t, ts: Date.now() };
+      // Citar un cotorreo del hilo (solo de día). Se guarda una copia por si el hilo cambia en otro ciclo.
+      const q = ph === "DAY" && typeof quote === "string" ? this.state.posts.find((p) => p.id === quote) : undefined;
+      if (q) msg.quote = { id: q.id, body: q.body, text: q.text };
       this.chatLog.push(msg);
       if (this.chatLog.length > MAX_CHAT_LOG) this.chatLog.shift();
       this.broadcast("chat", msg);
@@ -162,6 +171,43 @@ export class GameRoom extends Room<GameState> {
       target.likes = set.size;
     });
 
+    // 🤨 Sus: "esto no lo escribiría su dueño". Igual que el like (toggle, anónimo).
+    this.onMessage("sus", (client, { id }: { id: string }) => {
+      const me = this.pid(client);
+      if (!["THREAD", "DAY"].includes(this.state.phase) || typeof id !== "string" || !this.isActive(me)) return;
+      const target = this.findLikeable(id);
+      if (!target) return;
+      let set = this.susBy.get(id);
+      if (!set) this.susBy.set(id, (set = new Set()));
+      set.has(me) ? set.delete(me) : set.add(me);
+      target.sus = set.size;
+    });
+
+    // "Escribiendo…": de día y en el hilo se avisa a todos (por cuerpo); de noche solo a la otra punta del chat.
+    this.onMessage("typing", (client, msg: { toBody?: string }) => {
+      const me = this.pid(client);
+      const ph = this.state.phase;
+      const now = Date.now();
+      if (!this.isActive(me) || now - (this.lastTyping.get(me) ?? 0) < 800) return;
+      this.lastTyping.set(me, now);
+      const body = this.bodyOf.get(me) ?? me;
+      if (ph === "DAY" || ph === "THREAD") return this.broadcast("typing", { body }, { except: client });
+      if (ph !== "NIGHT" || typeof msg?.toBody !== "string") return;
+      const target = this.mindInBody(msg.toBody);
+      // Solo en conversaciones ya abiertas: no se avisa de un chat que quizá nunca empiece.
+      if (!target || !this.dmPairs.has([me, target].sort().join("|"))) return;
+      this.clientOf(target)?.send("typing", { body, dm: true });
+    });
+
+    // "Visto": quien tiene abierto un chat privado avisa hasta qué mensaje leyó.
+    this.onMessage("seen", (client, { withBody, ts }: { withBody: string; ts: number }) => {
+      const me = this.pid(client);
+      if (this.state.phase !== "NIGHT" || typeof withBody !== "string" || typeof ts !== "number") return;
+      const target = this.mindInBody(withBody);
+      if (!target || !this.dmPairs.has([me, target].sort().join("|"))) return;
+      this.clientOf(target)?.send("seen", { withBody: this.bodyOf.get(me), ts });
+    });
+
     this.onMessage("dm", (client, { toBody, text }: { toBody: string; text: string }) => {
       const t = clean(text);
       if (!t || this.state.phase !== "NIGHT") return;
@@ -185,6 +231,7 @@ export class GameRoom extends Room<GameState> {
       this.dmLog.push({ a: me, b: target, fromBody: myBody, text: t, ts });
       client.send("dm", { fromBody: myBody, text: t, ts, withBody: toBody });
       this.clientOf(target)?.send("dm", { fromBody: myBody, text: t, ts, withBody: myBody });
+      this.sendChatGraph();
     });
 
     // 🎭 El Desenmascare: una acusación "en el cuerpo X está la mente Y", o omitir.
@@ -265,7 +312,7 @@ export class GameRoom extends Room<GameState> {
     this.onMessage("voteSkip", (client) => {
       if (!SKIPPABLE.includes(this.state.phase)) return;
       const p = this.state.players.get(this.pid(client));
-      if (!p || p.out) return;
+      if (!p || !this.isActive(p.id)) return;
       p.skipVote = !p.skipVote;
       this.checkSkipVotes();
     });
@@ -400,6 +447,7 @@ export class GameRoom extends Room<GameState> {
     this.roundPts.clear();
     this.earlyPts.clear();
     this.ejections = [];
+    this.hiddenOut.clear();
     this.verdict = null;
     this.winner = null;
     this.state.posts.clear();
@@ -438,7 +486,7 @@ export class GameRoom extends Room<GameState> {
   }
 
   /**
-   * 🧳 → [❓ → 🐦 → ☀️ → 🌙 → (votación entre ciclos) → (re-cambio en El Inmutable)] × ciclos → votación final → 🏆
+   * 🧳 → [❓ → 🦜 → ☀️ → 🌙 → (votación entre ciclos) → (re-cambio en El Inmutable)] × ciclos → votación final → 🏆
    * La votación entre ciclos no ocurre en el último ciclo: a ese le sigue la votación final.
    */
   private advance() {
@@ -481,6 +529,7 @@ export class GameRoom extends Room<GameState> {
       case "QUESTION": {
         this.answers.clear();
         this.likedBy.clear();
+        this.susBy.clear();
         this.state.posts.clear();
         this.state.question = this.pickQuestion();
         this.resetSubmitted();
@@ -577,7 +626,10 @@ export class GameRoom extends Room<GameState> {
     }
     const mind = this.mindInBody(top)!;
     const voters = [...this.votes.entries()].filter(([, b]) => b === top).map(([v]) => v);
-    this.eject(kind, top, mind);
+    // En una votación intermedia, si sale un cambiante NO se revela qué alma tenía: revelarla descartaría
+    // a otra mente que seguro no está en su cuerpo. El cuerpo queda como fantasma.
+    const ghost = !final && mind !== this.immutableId;
+    this.eject(kind, top, mind, ghost);
     if (mind === this.immutableId) {
       this.winner = "changers";
       for (const p of this.state.players.values()) if (p.id !== this.immutableId) this.addPts(p.id, POINTS.changersWin, false);
@@ -589,7 +641,11 @@ export class GameRoom extends Room<GameState> {
     this.addPts(this.immutableId, POINTS.immutableEjects, !final);
     if (!final) this.addPts(this.immutableId, POINTS.immutableSurvives, true);
     if (final || this.activeIds().length <= 2) this.winImmutable();
-    return { kind, tally, outcome: "ejected", bodyId: top, mindId: mind, wasImmutable: false, winner: this.winner ?? undefined };
+    if (ghost && this.winner) this.revealHidden(); // la partida terminó: ya se puede saber
+    return {
+      kind, tally, outcome: "ejected", bodyId: top, mindId: ghost && !this.winner ? undefined : mind,
+      wasImmutable: false, ghost: ghost && !this.winner, winner: this.winner ?? undefined,
+    };
   }
 
   private winImmutable() {
@@ -598,21 +654,57 @@ export class GameRoom extends Room<GameState> {
     this.addPts(this.immutableId, POINTS.immutableWins, false);
   }
 
-  private eject(kind: Ejection["kind"], bodyId: string, mindId: string) {
+  private eject(kind: Ejection["kind"], bodyId: string, mindId: string, hidden = false) {
     const mind = this.state.players.get(mindId);
     const body = this.state.players.get(bodyId);
     if (mind) {
-      mind.out = true;
+      if (hidden) this.hiddenOut.add(mindId);
+      else mind.out = true;
       mind.skipVote = false;
     }
     if (body) body.bodyOut = true;
     this.ejections.push({ cycle: this.state.cycle, kind, bodyId, mindId, wasImmutable: mindId === this.immutableId });
+    // La mente expulsada se entera en privado de que ahora es espectadora.
+    const c = this.clientOf(mindId);
+    if (c && hidden) this.sendIdentity(c);
+  }
+
+  /** Al terminar la partida, los fantasmas pasan a ser espectadores públicos (ya no hay nada que ocultar). */
+  private revealHidden() {
+    for (const id of this.hiddenOut) {
+      const p = this.state.players.get(id);
+      if (p) p.out = true;
+    }
+    this.hiddenOut.clear();
+  }
+
+  /** Espectadores: quién chatea con quién esta noche (por cuerpo), sin el contenido. Solo a espectadores. */
+  private chatGraph() {
+    const edges = new Map<string, { a: string; b: string; count: number; last: number }>();
+    for (const d of this.dmLog) {
+      const a = this.bodyOf.get(d.a)!;
+      const b = this.bodyOf.get(d.b)!;
+      const key = [a, b].sort().join("|");
+      const e = edges.get(key) ?? { a: [a, b].sort()[0], b: [a, b].sort()[1], count: 0, last: 0 };
+      e.count++;
+      e.last = Math.max(e.last, d.ts);
+      edges.set(key, e);
+    }
+    return [...edges.values()];
+  }
+
+  private sendChatGraph() {
+    const graph = this.chatGraph();
+    for (const [pid, c] of this.clientOfPid) if (!this.isActive(pid)) c.send("chatGraph", graph);
   }
 
   private addPts(pid: string, pts: number, early: boolean) {
     if (!pid) return;
     this.roundPts.set(pid, (this.roundPts.get(pid) ?? 0) + pts);
     if (early) this.earlyPts.set(pid, (this.earlyPts.get(pid) ?? 0) + pts);
+    // En los Inmutables el marcador público se actualiza recién al final: ver quién sumó tras una
+    // votación delataría al Inmutable.
+    if (isImmutableMode(this.state.settings.mode)) return;
     const p = this.state.players.get(pid);
     if (p) p.score += pts;
   }
@@ -643,6 +735,7 @@ export class GameRoom extends Room<GameState> {
     this.dmPairs.clear();
     this.initiated.clear();
     this.dmLog = [];
+    this.sendChatGraph();
     const s = this.state.settings;
     this.state.chatLimit = s.chatsPerNight > 0 ? s.chatsPerNight : autoChats(this.activeIds().length);
     this.setPhase("NIGHT", seconds);
@@ -668,7 +761,7 @@ export class GameRoom extends Room<GameState> {
 
   private checkSkipVotes() {
     if (!SKIPPABLE.includes(this.state.phase)) return;
-    const voters = [...this.state.players.values()].filter((p) => p.connected && !p.out);
+    const voters = [...this.state.players.values()].filter((p) => p.connected && this.isActive(p.id));
     const votes = voters.filter((p) => p.skipVote).length;
     if (votes > 0 && votes >= skipNeeded(voters.length)) {
       this.broadcast("skipped", { by: "vote" });
@@ -679,13 +772,13 @@ export class GameRoom extends Room<GameState> {
   /** Si todos los activos conectados ya respondieron / votaron, se avanza sin esperar el reloj. */
   private checkAllSubmitted() {
     if (!SUBMIT_PHASES.includes(this.state.phase)) return;
-    const pending = [...this.state.players.values()].some((p) => p.connected && !p.out && !p.submitted);
+    const pending = [...this.state.players.values()].some((p) => p.connected && this.isActive(p.id) && !p.submitted);
     if (!pending) this.advance();
   }
 
   private isActive(pid: string) {
     const p = this.state.players.get(pid);
-    return !!p && !p.out;
+    return !!p && !p.out && !this.hiddenOut.has(pid);
   }
 
   private isBodyActive(bodyId: string) {
@@ -694,7 +787,7 @@ export class GameRoom extends Room<GameState> {
   }
 
   private activeIds() {
-    return [...this.state.players.values()].filter((p) => !p.out).map((p) => p.id);
+    return [...this.state.players.values()].filter((p) => this.isActive(p.id)).map((p) => p.id);
   }
 
   private canUnmaskSame() {
@@ -803,7 +896,11 @@ export class GameRoom extends Room<GameState> {
 
   private finishImmutable() {
     if (!this.winner) this.winImmutable();
-    for (const p of this.state.players.values()) p.lastPoints = this.roundPts.get(p.id) ?? 0;
+    this.revealHidden();
+    for (const p of this.state.players.values()) {
+      p.lastPoints = this.roundPts.get(p.id) ?? 0;
+      p.score += p.lastPoints;
+    }
     this.lastResults = {
       family: "immutable",
       mode: this.state.settings.mode,
@@ -819,6 +916,7 @@ export class GameRoom extends Room<GameState> {
   }
 
   private backToLobby() {
+    this.hiddenOut.clear();
     for (const p of [...this.state.players.values()]) {
       if (!p.connected) {
         this.state.players.delete(p.id);
@@ -852,7 +950,8 @@ export class GameRoom extends Room<GameState> {
     const role = isImmutableMode(this.state.settings.mode) && ph !== "LOBBY"
       ? (id === this.immutableId ? "immutable" : "changer")
       : null;
-    client.send("identity", { mindId: id, bodyId: this.bodyOf.get(id) ?? id, role });
+    const spectator = ph !== "LOBBY" && !!this.state.players.get(id) && !this.isActive(id);
+    client.send("identity", { mindId: id, bodyId: this.bodyOf.get(id) ?? id, role, spectator });
     client.send("chatHistory", this.chatLog);
     if (ph === "NIGHT") {
       client.send("quota", { used: this.initiated.get(id) ?? 0 });
@@ -861,6 +960,7 @@ export class GameRoom extends Room<GameState> {
         .map((d) => ({ fromBody: d.fromBody, text: d.text, ts: d.ts, withBody: this.bodyOf.get(d.a === id ? d.b : d.a)! }));
       client.send("dmHistory", mine);
     }
+    if (ph === "NIGHT" && spectator) client.send("chatGraph", this.chatGraph());
     if (ph === "VERDICT" && this.verdict) client.send("verdict", this.verdict);
     if (ph === "RESULTS" && this.lastResults) client.send("results", this.lastResults);
   }

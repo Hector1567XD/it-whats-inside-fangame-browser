@@ -37,12 +37,13 @@ export class Settings extends Schema {
   @type("boolean") unmaskSame = false; // (Clásico) se puede desenmascarar a quien no cambió
 }
 
-/** Respuesta en El Hilo, estilo post de X. */
+/** Respuesta en El Hilo (un "cotorreo" en Cotorra 🦜). */
 export class Reply extends Schema {
   @type("string") id = "";
   @type("string") body = "";
   @type("string") text = "";
   @type("number") likes = 0;
+  @type("number") sus = 0; // 🤨 "esto no lo escribiría su dueño"
 }
 
 export class Post extends Schema {
@@ -50,6 +51,7 @@ export class Post extends Schema {
   @type("string") body = "";
   @type("string") text = "";
   @type("number") likes = 0;
+  @type("number") sus = 0;
   @type([Reply]) replies = new ArraySchema<Reply>();
 }
 
