@@ -40,6 +40,7 @@ export class Settings extends Schema {
   @type("number") maxEjections = 1; // 0 = sin límite
   @type("boolean") unmaskSame = false; // (Clásico) se puede desenmascarar a quien no cambió
   @type("number") voiceWalkie = 0; // 📻 0 = off, 1 = poquito, 2 = bastante (voz del lobby)
+  @type("boolean") voicePhases = false; // ☀️ Chat global y 🌙 privado por voz en vez de texto (requiere el SFU)
 }
 
 /** Respuesta en El Hilo (un "cotorreo" en Cotorra 🦜). */
@@ -73,6 +74,7 @@ export class GameState extends Schema {
   @type("string") hostId = "";
   @type("number") minPlayers = 5;
   @type("number") maxPlayers = 12;
+  @type("boolean") sfu = false; // el server tiene el SFU de Cloudflare (la voz en partida lo necesita)
   @type("number") chatLimit = 2; // chats que cada quien puede INICIAR esta noche
   @type("string") question = "";
   @type([Post]) posts = new ArraySchema<Post>(); // respuestas del ciclo actual

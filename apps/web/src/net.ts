@@ -52,7 +52,10 @@ export type Settings = {
   chatsPerNight: number; // 0 = auto
   earlyVote: boolean; voteSeconds: number; maxEjections: number; unmaskSame: boolean;
   voiceWalkie: number; // 📻 0 off · 1 poquito · 2 bastante
+  voicePhases: boolean; // ☀️ Chat global y 🌙 privado por voz en vez de texto
 };
+/** 🌙 Llamadas por voz (por cuerpo): a quién llamo, quién me llama y con quién ya hablé esta noche. */
+export type CallState = { target: string; incoming: string[]; pairs: string[] };
 export type ReplyView = { id: string; body: string; text: string; likes: number; sus: number };
 export type PostView = ReplyView & { replies: ReplyView[] };
 export type StateView = {
@@ -64,6 +67,7 @@ export type StateView = {
   hostId: string;
   minPlayers: number;
   maxPlayers: number;
+  sfu: boolean; // el server tiene el SFU de Cloudflare (necesario para la voz en partida)
   chatLimit: number;
   question: string;
   posts: PostView[];

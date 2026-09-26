@@ -272,7 +272,7 @@ function Game({ room }: { room: Room }) {
   const [toast, setToast] = useState<{ text: string; kind: string; id: number } | null>(null);
   const meRef = useRef(me);
   meRef.current = me;
-  const voice = useVoice(room, s, me?.mindId); // solo vive en el LOBBY
+  const voice = useVoice(room, s, me); // en el LOBBY y, si está activado, en el chat global y privado
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   function flash(text: string, kind = "info") {

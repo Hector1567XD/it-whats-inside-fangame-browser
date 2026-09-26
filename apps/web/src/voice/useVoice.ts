@@ -28,11 +28,14 @@ function saveProfile(p: VoiceProfile) {
 }
 
 /**
- * Voz del lobby: el modal, la cadena (mic → voz modulada) y la malla P2P.
- * Todo vive solo mientras la fase es LOBBY; al salir se cierran los peers, se suelta el micrófono y se cierra
- * el AudioContext. Al volver al lobby se rearma solo con la elección que hizo el jugador en esta sesión.
+ * Voz: el modal, la cadena (mic → voz modulada) y el transporte (SFU de Cloudflare o malla P2P).
+ * Vive en el LOBBY y, si el host activó "Chat global y privado por voz" (requiere el SFU), toda la partida:
+ * ahí el server decide qué voces oye cada quien y tu voz suena con la del DUEÑO DEL CUERPO que ocupas.
+ * Al terminar se cierran los peers, se suelta el micrófono y se cierra el AudioContext; al volver al lobby
+ * se rearma solo con la elección que hizo el jugador en esta sesión.
  */
-export function useVoice(room: Room, s: StateView | null, myId: string | undefined) {
+export function useVoice(room: Room, s: StateView | null, me: { mindId: string; bodyId: string } | null) {
+  const myId = me?.mindId;
   const [mode, setMode] = useState<VoiceMode>("off");
   const [decided, setDecided] = useState(false); // ya respondió el modal en esta sesión
   const [setupOpen, setSetupOpen] = useState(false); // reabierto con ⚙️
@@ -52,13 +55,33 @@ export function useVoice(room: Room, s: StateView | null, myId: string | undefin
   const idsRef = useRef<string[]>([]);
   const opening = useRef<Promise<VoiceChain> | null>(null);
   const lastEngine = useRef<EngineId | null>(null);
+  const selfRef = useRef("");
 
   const inLobby = s?.phase === "LOBBY";
+  const inGame = !!s && !inLobby && s.settings.voicePhases && s.sfu;
+  const active = inLobby || inGame;
   const mine = myId ? s?.players[myId] : undefined;
   const variant = mine?.voiceVariant ?? 0;
   const walkie = (s?.settings.voiceWalkie ?? 0) as WalkieLevel;
-  const live = useRef({ muted, walkie, variant, profile });
-  live.current = { muted, walkie, variant, profile };
+  // En partida hablas "desde tu cuerpo": su voz es la de su dueño. En lobby y resultados, la tuya.
+  const byBody = inGame && s?.phase !== "RESULTS";
+  const selfLabel = (byBody ? me?.bodyId : myId) ?? "";
+  const params = voiceParams();
+  const paramsKey = JSON.stringify(params);
+  const live = useRef({ muted, walkie, params });
+  live.current = { muted, walkie, params };
+  selfRef.current = selfLabel;
+
+  /** Parámetros de la voz que sale: tu tipo y variante, o los del dueño del cuerpo (con tu tono base). */
+  function voiceParams() {
+    const f0 = profile?.f0;
+    const owner = byBody && s ? s.players[me?.bodyId ?? ""] : undefined;
+    if (!owner) return paramsFor(profile?.voice ?? "neutral", variant, f0);
+    if (isVoiceType(owner.voice)) return paramsFor(owner.voice, owner.voiceVariant, f0);
+    // El dueño no eligió voz: una neutra propia de ese cuerpo, distinta de las elegidas.
+    const typeless = Object.values(s!.players).filter((p) => !isVoiceType(p.voice)).map((p) => p.id);
+    return paramsFor("neutral", 5 + Math.max(0, typeless.indexOf(owner.id)), f0);
+  }
 
   function ensureCtx() {
     if (!ctxRef.current || ctxRef.current.state === "closed") ctxRef.current = new AudioContext();
@@ -121,25 +144,25 @@ export function useVoice(room: Room, s: StateView | null, myId: string | undefin
     return () => offs.forEach((off) => off());
   }, [room]);
 
-  // Fuera del lobby (o al desmontar) se suelta todo.
+  // Sin voz en esta fase (o al desmontar) se suelta todo.
   useEffect(() => {
-    if (!inLobby) teardown();
-  }, [inLobby]);
+    if (!active) teardown();
+  }, [active]);
   useEffect(() => teardown, []);
 
-  // Arma la malla (y la cadena si hay micrófono) al estar en el lobby con una elección hecha.
+  // Arma el transporte (y la cadena si hay micrófono) con la voz activa y una elección hecha.
   useEffect(() => {
-    if (!inLobby || mode === "off" || !myId) return;
+    if (!active || mode === "off" || !myId) return;
     let cancelled = false;
     (async () => {
       try {
         const ctx = ensureCtx();
         let track: MediaStreamTrack | null = null;
         if (mode === "mic") {
-          const { profile: p, variant: v, walkie: w, muted: m } = live.current;
+          const { params: pr, walkie: w, muted: m } = live.current;
           const chain = await ensureChain();
           if (cancelled) return;
-          await chain.start(paramsFor(p?.voice ?? "neutral", v, p?.f0), w);
+          await chain.start(pr, w);
           if (cancelled) return;
           chain.setMuted(m);
           setEngine(chain.engineId);
@@ -151,14 +174,16 @@ export function useVoice(room: Room, s: StateView | null, myId: string | undefin
           setEngine(null);
         }
         // Primero el perfil y después los `hello`: así los demás ya nos cuentan en la voz cuando llegan.
-        const p = live.current.profile;
+        // (en partida el server lo ignora: ver quién se mutea delataría su mente)
         room.send("voiceProfile", mode === "mic"
-          ? { voice: p?.voice ?? "neutral", micOn: !live.current.muted }
+          ? { voice: profile?.voice ?? "neutral", micOn: !live.current.muted }
           : { voice: "listen", micOn: false });
         // Con el SFU de Cloudflare configurado en el server, el audio pasa por él; si no, malla P2P.
         const cfg = await sfuRequest<{ sfu: boolean; iceServers: RTCIceServer[] }>(room, "config", {}, 5000)
           .catch(() => ({ sfu: false, iceServers: [] }));
         if (cancelled) return;
+        // La malla P2P delataría quién está en cada cuerpo: en partida solo hay voz con el SFU.
+        if (!cfg.sfu && !inLobby) return;
         const mesh: VoiceTransport = cfg.sfu ? new VoiceSfu(room, myId, ctx, track, cfg.iceServers) : new VoiceMesh(room, myId, ctx, track);
         setTransport(cfg.sfu ? "sfu" : "p2p");
         mesh.onChange = () => {
@@ -182,7 +207,7 @@ export function useVoice(room: Room, s: StateView | null, myId: string | undefin
       cancelled = true;
       dropMesh();
     };
-  }, [inLobby, mode, myId]);
+  }, [active, mode, myId]);
 
   // Sin voz en esta sesión (o recién reconectado): que el server no nos anuncie como disponibles.
   useEffect(() => {
@@ -199,11 +224,10 @@ export function useVoice(room: Room, s: StateView | null, myId: string | undefin
   const idsKey = ids.join(",");
   useEffect(() => { meshRef.current?.sync(ids); }, [idsKey]);
 
-  // Cambios sin reconectar: variante, tono base, tipo, walkie, mute, ensordecer.
+  // Cambios sin reconectar: variante, tono base, tipo, cuerpo (al cambiar de cuerpo), walkie, mute, ensordecer.
   useEffect(() => {
-    if (mode !== "mic" || !profile) return;
-    chainRef.current?.setParams(paramsFor(profile.voice, variant, profile.f0));
-  }, [mode, profile?.voice, profile?.f0, variant]);
+    if (mode === "mic") chainRef.current?.setParams(params);
+  }, [mode, paramsKey]);
   useEffect(() => { chainRef.current?.setWalkie(walkie); }, [walkie]);
   useEffect(() => {
     chainRef.current?.setMuted(muted);
@@ -213,13 +237,13 @@ export function useVoice(room: Room, s: StateView | null, myId: string | undefin
 
   // Anillo de "hablando": nivel local (voz procesada) y de cada peer.
   useEffect(() => {
-    if (!inLobby || mode === "off") return;
+    if (!active || mode === "off") return;
     let prev = "";
     const iv = setInterval(() => {
       const next: Record<string, boolean> = {};
       const levels = meshRef.current?.levels() ?? {};
       for (const [id, l] of Object.entries(levels)) if (l > SPEAKING) next[id] = true;
-      if (myId && chainRef.current && !live.current.muted && chainRef.current.level() > SPEAKING) next[myId] = true;
+      if (selfRef.current && chainRef.current && !live.current.muted && chainRef.current.level() > SPEAKING) next[selfRef.current] = true;
       const key = Object.keys(next).sort().join(",");
       if (key !== prev) {
         prev = key;
@@ -227,7 +251,7 @@ export function useVoice(room: Room, s: StateView | null, myId: string | undefin
       }
     }, 100);
     return () => clearInterval(iv);
-  }, [inLobby, mode, myId]);
+  }, [active, mode, myId]);
 
   /** Variante que probablemente te toque con ese tipo (el server asigna por orden de llegada = orden del mapa). */
   function predictVariant(type: VoiceType) {
@@ -238,8 +262,8 @@ export function useVoice(room: Room, s: StateView | null, myId: string | undefin
   }
 
   return {
-    mode, profile, muted, deaf, engine, speaking, peers, blocked, error, walkie, transport, problem,
-    showSetup: inLobby && (setupOpen || (!decided && mode === "off")),
+    mode, profile, muted, deaf, engine, speaking, peers, blocked, error, walkie, transport, problem, inGame, selfLabel,
+    showSetup: active && (setupOpen || (inLobby && !decided && mode === "off")),
     chain: chainRef,
     ensureCtx, ensureChain, finish, predictVariant,
     openSetup: () => setSetupOpen(true),

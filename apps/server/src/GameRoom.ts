@@ -80,7 +80,7 @@ export const rtcStats = { relayed: 0, dropped: 0, sfuCalls: 0, sfuErrors: 0 };
 const VOICE_TRACK = "voice";
 
 /** Voz por Cloudflare SFU: sesiones de cada jugador (privado; el navegador nunca ve los ids de los demás). */
-type SfuPeer = { pub?: string; pubMid?: string; ready: boolean; sub?: string };
+type SfuPeer = { pub?: string; pubMid?: string; ready: boolean; sub?: string; sent?: string };
 type SfuMsg = { rid?: number; op?: string; sdp?: SessionDescription; mid?: string; pids?: string[]; mids?: string[] };
 
 export class GameRoom extends Room<GameState> {
@@ -127,11 +127,16 @@ export class GameRoom extends Room<GameState> {
   private nextJoin = 0;
   private rtcWindow = new Map<string, { start: number; count: number }>();
   private sfuPeers = new Map<string, SfuPeer>();
+  // Voz en partida: las pistas se etiquetan por CUERPO. Al cambiar el reparto cambia la época y se re-suscribe todo.
+  private bodyEpoch = 0;
+  private callTarget = new Map<string, string>(); // 🌙 mente -> mente con la que está en llamada (o llamando)
+  private lastCalls = new Map<string, string>(); // lo último que se le mandó a cada uno en "callState"
 
   onCreate(opts: { mode?: string }) {
     this.roomId = newCode();
     this.setMode(opts?.mode && opts.mode in MODES ? (opts.mode as Mode) : "classic");
     this.state.maxPlayers = MAX_PLAYERS;
+    this.state.sfu = sfuEnabled();
     this.clock.setInterval(() => this.tick(), 1000);
     this.syncMeta();
 
@@ -250,6 +255,36 @@ export class GameRoom extends Room<GameState> {
       this.sendChatGraph();
     });
 
+    // 🌙📞 Chat privado por voz: llamar a un cuerpo (iniciar gasta 1 del cupo, igual que un DM; contestar es gratis).
+    // Solo se oyen si los dos se eligieron. Llamar a otro cuelga la llamada anterior.
+    this.onMessage("call", (client, { toBody }: { toBody?: string }) => {
+      const me = this.pid(client);
+      if (this.state.phase !== "NIGHT" || !this.voiceInGame() || !this.isActive(me) || typeof toBody !== "string") return;
+      const target = this.mindInBody(toBody);
+      if (!target || target === me || !this.isActive(target)) return;
+      const key = [me, target].sort().join("|");
+      if (!this.dmPairs.has(key)) {
+        const used = this.initiated.get(me) ?? 0;
+        if (used >= this.state.chatLimit) {
+          return this.err(client, `Ya usaste tus ${this.state.chatLimit} llamadas de esta noche 🔒 (solo puedes contestar a quien te llame)`);
+        }
+        this.dmPairs.add(key);
+        this.initiated.set(me, used + 1);
+        client.send("quota", { used: used + 1 });
+        // Para el grafo de los espectadores: la llamada cuenta como un mensaje (sin contenido).
+        this.dmLog.push({ a: me, b: target, fromBody: this.bodyOf.get(me)!, text: "📞", ts: Date.now() });
+        this.sendChatGraph();
+      }
+      this.callTarget.set(me, target);
+      this.pushAudible();
+    });
+
+    this.onMessage("hangup", (client) => {
+      const me = this.pid(client);
+      if (!this.callTarget.delete(me)) return;
+      this.pushAudible();
+    });
+
     // 🎭 El Desenmascare: una acusación "en el cuerpo X está la mente Y", o omitir.
     this.onMessage("accuse", (client, msg: { body?: string; mind?: string; skip?: boolean }) => {
       const me = this.pid(client);
@@ -299,6 +334,8 @@ export class GameRoom extends Room<GameState> {
     this.onMessage("voiceProfile", (client, msg: { voice?: string; micOn?: boolean }) => {
       const p = this.state.players.get(this.pid(client));
       if (!p || !msg || typeof msg !== "object") return;
+      // En partida no se toca: ver quién se mutea (o cambia de voz) justo cuando un cuerpo calla delataría su mente.
+      if (this.state.phase !== "LOBBY") return;
       if (typeof msg.voice === "string" && VOICES.includes(msg.voice)) p.voice = msg.voice;
       if (typeof msg.micOn === "boolean") p.micOn = msg.micOn && !["", "listen"].includes(p.voice);
       this.assignVoiceVariants();
@@ -349,6 +386,7 @@ export class GameRoom extends Room<GameState> {
       if (typeof patch.earlyVote === "boolean") s.earlyVote = patch.earlyVote;
       if (typeof patch.unmaskSame === "boolean") s.unmaskSame = patch.unmaskSame && s.mode === "classic";
       if ("voiceWalkie" in patch) s.voiceWalkie = clamp(patch.voiceWalkie, 0, 2, s.voiceWalkie);
+      if (typeof patch.voicePhases === "boolean") s.voicePhases = patch.voicePhases && sfuEnabled();
     });
 
     this.onMessage("start", (client) => {
@@ -797,6 +835,7 @@ export class GameRoom extends Room<GameState> {
   }
 
   private startNight(seconds: number) {
+    this.callTarget.clear();
     this.dmPairs.clear();
     this.initiated.clear();
     this.dmLog = [];
@@ -808,12 +847,14 @@ export class GameRoom extends Room<GameState> {
 
   private setPhase(phase: Phase, seconds: number) {
     const changed = this.state.phase !== phase;
-    // Al salir del lobby la voz se apaga: cada cliente cierra sus conexiones y el server olvida las sesiones.
-    if (changed && this.state.phase === "LOBBY") for (const id of [...this.sfuPeers.keys()]) this.sfuDrop(id, false);
+    // Sin voz en partida, al salir del lobby la voz se apaga: cada cliente cierra sus conexiones y el server olvida las sesiones.
+    if (changed && this.state.phase === "LOBBY" && !this.voiceInGame()) for (const id of [...this.sfuPeers.keys()]) this.sfuDrop(id);
+    if (changed && phase !== "NIGHT") this.callTarget.clear();
     this.state.phase = phase;
     this.state.timer = seconds;
     for (const p of this.state.players.values()) p.skipVote = false;
     if (changed) this.syncMeta();
+    if (changed) this.pushAudible();
   }
 
   private resetSubmitted() {
@@ -894,6 +935,7 @@ export class GameRoom extends Room<GameState> {
       movers = all.slice(0, swapCount(mode, all.length));
     }
     if (movers.length >= 2) this.derange(movers, movers, (m) => m, (m) => this.lastBodyOf.get(m));
+    this.bodyEpoch++;
     this.lastBodyOf = new Map(this.bodyOf);
     for (const m of all) this.history.set(m, [this.bodyOf.get(m)!]);
   }
@@ -907,6 +949,7 @@ export class GameRoom extends Room<GameState> {
       this.derange(movers, bodies, (m) => current.get(m), () => undefined);
     }
     for (const m of movers) this.history.get(m)?.push(this.bodyOf.get(m)!);
+    this.bodyEpoch++;
   }
 
   // ---------------- resultados ----------------
@@ -1042,17 +1085,20 @@ export class GameRoom extends Room<GameState> {
         case "ready": // el navegador ya está conectado y mandando audio: los demás se pueden suscribir
           if (!peer.pub) throw new Error("no hay publicación");
           peer.ready = true;
-          this.broadcastSfuPubs();
+          this.pushAudible();
           return reply({ ok: true });
         case "subscribe": {
           peer.sub = await sfu.newSession();
-          return reply({ ok: true, pubs: this.sfuPubs() });
+          peer.sent = undefined;
+          return reply({ ok: true, ...this.audibleFor(me) });
         }
         case "pull": {
+          // `pids` son ETIQUETAS (cuerpos en partida). Solo se entrega lo que este jugador puede oír ahora.
           if (!peer.sub) throw new Error("no hay sesión de recepción");
-          const pids = (Array.isArray(msg.pids) ? msg.pids : []).filter((id) => id !== me && this.sfuPeers.get(id)?.ready);
-          if (pids.length === 0) return reply({ ok: true, tracks: [] });
-          const bySession = new Map(pids.map((id) => [this.sfuPeers.get(id)!.pub!, id]));
+          const allowed = new Set(this.audibleFor(me).bodies);
+          const labels = (Array.isArray(msg.pids) ? msg.pids : []).filter((l) => allowed.has(l));
+          if (labels.length === 0) return reply({ ok: true, tracks: [] });
+          const bySession = new Map(labels.map((l) => [this.sfuPeers.get(this.voiceMind(l))!.pub!, l]));
           const r = await sfu.pull(peer.sub, [...bySession.keys()].map((sessionId) => ({ sessionId, trackName: VOICE_TRACK })));
           const tracks = (r.tracks ?? []).map((t) => ({
             pid: bySession.get(t.sessionId ?? "") ?? "", mid: t.mid, error: t.errorCode,
@@ -1084,13 +1130,71 @@ export class GameRoom extends Room<GameState> {
     }
   }
 
-  /** Quién tiene la voz publicada y lista (para que los demás se suscriban). */
-  private sfuPubs() {
-    return [...this.sfuPeers.entries()].filter(([, p]) => p.ready && p.pub).map(([id]) => id);
+  private voiceInGame() {
+    return this.state.settings.voicePhases && sfuEnabled();
   }
 
-  private broadcastSfuPubs() {
-    this.broadcast("sfuPubs", this.sfuPubs());
+  /** En partida las voces se nombran por cuerpo; en el lobby y en resultados, por la persona. */
+  private voiceByBody() {
+    return !["LOBBY", "RESULTS"].includes(this.state.phase);
+  }
+  private voiceLabel(mind: string) {
+    return this.voiceByBody() ? this.bodyOf.get(mind) ?? mind : mind;
+  }
+  private voiceMind(label: string) {
+    return this.voiceByBody() ? this.mindInBody(label) ?? label : label;
+  }
+
+  /**
+   * Qué voces oye `me` ahora (etiquetadas por cuerpo en partida) y la época de esas etiquetas.
+   * Lobby y resultados: todos. ☀️ Chat global (voz): los cuerpos activos; los espectadores escuchan.
+   * 🌙 Chat privado (voz): solo con quien estés en llamada, si los dos se eligieron. Resto de fases: nadie.
+   */
+  private audibleFor(me: string): { bodies: string[]; epoch: string } {
+    const ph = this.state.phase;
+    const epoch = this.voiceByBody() ? `b${this.bodyEpoch}` : "id";
+    const ready = [...this.sfuPeers.entries()].filter(([id, p]) => id !== me && p.ready && p.pub).map(([id]) => id);
+    let minds: string[] = [];
+    if (ph === "LOBBY" || ph === "RESULTS") minds = ready;
+    else if (this.voiceInGame() && ph === "DAY") minds = ready.filter((m) => this.isActive(m));
+    else if (this.voiceInGame() && ph === "NIGHT" && this.isActive(me)) {
+      const t = this.callTarget.get(me);
+      minds = ready.filter((m) => m === t && this.callTarget.get(m) === me && this.isActive(m));
+    }
+    return { bodies: minds.map((m) => this.voiceLabel(m)), epoch };
+  }
+
+  /** Manda a cada uno qué voces tiene que oír (solo si cambió), y el estado de las llamadas de la noche. */
+  private pushAudible() {
+    for (const [pid, peer] of this.sfuPeers) {
+      const c = this.clientOf(pid);
+      if (!c || !peer.sub) continue;
+      const a = this.audibleFor(pid);
+      const key = JSON.stringify(a);
+      if (peer.sent === key) continue;
+      peer.sent = key;
+      c.send("sfuPubs", a);
+    }
+    this.pushCalls();
+  }
+
+  /** 🌙 Llamadas: a quién llamas, quién te llama y con quién ya hablaste (cuerpos). */
+  private pushCalls() {
+    for (const [pid, c] of this.clientOfPid) {
+      let st = { target: "", incoming: [] as string[], pairs: [] as string[] };
+      if (this.state.phase === "NIGHT" && this.voiceInGame() && this.isActive(pid)) {
+        const t = this.callTarget.get(pid);
+        st = {
+          target: t ? this.bodyOf.get(t) ?? "" : "",
+          incoming: [...this.callTarget].filter(([m, to]) => to === pid && t !== m).map(([m]) => this.bodyOf.get(m) ?? ""),
+          pairs: [...this.dmPairs].map((k) => k.split("|")).filter((ab) => ab.includes(pid)).map(([a, b]) => this.bodyOf.get(a === pid ? b : a) ?? ""),
+        };
+      }
+      const key = JSON.stringify(st);
+      if (this.lastCalls.get(pid) === key) continue;
+      this.lastCalls.set(pid, key);
+      c.send("callState", st);
+    }
   }
 
   private sfuClosePub(peer: SfuPeer) {
@@ -1101,13 +1205,13 @@ export class GameRoom extends Room<GameState> {
   }
 
   /** Olvida las sesiones SFU de un jugador y deja de publicar su voz. */
-  private sfuDrop(pid: string, announce = true) {
+  private sfuDrop(pid: string) {
     const peer = this.sfuPeers.get(pid);
     if (!peer) return;
     const wasPublic = peer.ready;
     this.sfuClosePub(peer);
     this.sfuPeers.delete(pid);
-    if (announce && wasPublic) this.broadcastSfuPubs();
+    if (wasPublic) this.pushAudible();
   }
 
   // ---------------- helpers ----------------
@@ -1147,6 +1251,7 @@ export class GameRoom extends Room<GameState> {
     }
     if (ph === "NIGHT" && spectator) client.send("chatGraph", this.chatGraph());
     if (ph === "VERDICT" && this.verdict) client.send("verdict", this.verdict);
+    if (ph === "NIGHT") this.pushCalls();
     if (ph === "RESULTS" && this.lastResults) client.send("results", this.lastResults);
   }
 
@@ -1160,6 +1265,7 @@ export class GameRoom extends Room<GameState> {
   }
 
   private bind(client: Client, pid: string) {
+    this.lastCalls.delete(pid); // la conexión nueva necesita el estado de llamadas completo
     this.pidOf.set(client.sessionId, pid);
     this.clientOfPid.set(pid, client);
   }

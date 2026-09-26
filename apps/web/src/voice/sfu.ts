@@ -29,6 +29,7 @@ function connected(pc: RTCPeerConnection, ms = 10000) {
   });
 }
 
+type Audible = { bodies: string[]; epoch: string };
 type Remote = { audio: HTMLAudioElement; source: MediaStreamAudioSourceNode; analyser: AnalyserNode };
 
 /**
@@ -45,13 +46,16 @@ export class VoiceSfu implements VoiceTransport {
   private pub: RTCPeerConnection | null = null;
   private sub: RTCPeerConnection;
   private subscribed = false;
-  private pubs = new Set<string>(); // quién tiene la voz publicada (lo avisa el server)
-  private wanted = new Set<string>();
-  private pulled = new Map<string, string>(); // pid -> mid en `sub`
+  // Qué voces hay que oír: lo decide el server. En partida las etiquetas son CUERPOS; si cambia el reparto
+  // (o se pasa de cuerpos a personas) cambia la época y se re-suscribe todo.
+  private pubs = new Set<string>();
+  private epoch = "";
+  private pulled = new Map<string, string>(); // etiqueta -> mid en `sub`
   private pidOfMid = new Map<string, string>();
   private remotes = new Map<string, Remote>();
   private retry = new Map<string, { n: number; at: number }>();
   private running = false;
+  private stale = false;
   private again = false;
   private destroyed = false;
   private deaf = false;
@@ -59,10 +63,7 @@ export class VoiceSfu implements VoiceTransport {
   private unsub: () => void;
 
   constructor(private room: Room, private myId: string, private ctx: AudioContext, private track: MediaStreamTrack | null, private ice: RTCIceServer[]) {
-    this.unsub = room.onMessage("sfuPubs", (list: string[]) => {
-      this.pubs = new Set(Array.isArray(list) ? list : []);
-      this.reconcile();
-    });
+    this.unsub = room.onMessage("sfuPubs", (a: Audible) => this.setAudible(a));
     this.sub = this.newPc("recepción");
     this.sub.ontrack = (e) => this.onTrack(e);
     this.sub.addEventListener("connectionstatechange", () => {
@@ -94,11 +95,10 @@ export class VoiceSfu implements VoiceTransport {
     console.info(`[voz] usando el SFU de Cloudflare (${this.track ? "hablo y escucho" : "solo escucho"})`);
     const publishing = this.track ? this.publish().catch((e) => this.fail(`No se pudo enviar tu voz: ${e?.message ?? e}`, e)) : null;
     try {
-      const r = await sfuRequest<{ pubs: string[] }>(this.room, "subscribe");
+      const r = await sfuRequest<Audible>(this.room, "subscribe");
       if (this.destroyed) return;
-      this.pubs = new Set(r.pubs);
       this.subscribed = true;
-      this.reconcile();
+      this.setAudible(r);
     } catch (e: any) {
       this.fail(`No se pudo conectar con el servidor de voz: ${e?.message ?? e}`, e);
     }
@@ -123,8 +123,17 @@ export class VoiceSfu implements VoiceTransport {
     console.info("[voz] ✔ tu voz está publicada en el SFU");
   }
 
-  sync(ids: string[]) {
-    this.wanted = new Set(ids.filter((id) => id !== this.myId));
+  /** Con el SFU decide el server a quién se oye; esto no hace falta. */
+  sync(_ids: string[]) {}
+
+  private setAudible(a: Audible) {
+    if (!a || !Array.isArray(a.bodies)) return;
+    if (a.epoch !== this.epoch) {
+      this.epoch = a.epoch;
+      this.stale = true; // las etiquetas viejas ya no significan lo mismo
+      this.retry.clear();
+    }
+    this.pubs = new Set(a.bodies);
     this.reconcile();
   }
 
@@ -139,8 +148,11 @@ export class VoiceSfu implements VoiceTransport {
           this.again = false;
           await this.step();
         } while (this.again && !this.destroyed);
+        if (this.problem.startsWith("Reintentando")) { this.problem = ""; this.onChange(); }
       } catch (e: any) {
-        this.fail(`Error con el servidor de voz: ${e?.message ?? e}`, e);
+        // Suele ser una demora de la API: reintentar solo.
+        this.fail(`Reintentando conectar las voces… (${e?.message ?? e})`, e);
+        setTimeout(() => this.reconcile(), 3000);
       } finally {
         this.running = false;
       }
@@ -148,8 +160,9 @@ export class VoiceSfu implements VoiceTransport {
   }
 
   private async step() {
-    const want = [...this.pubs].filter((id) => id !== this.myId && this.wanted.has(id));
-    const gone = [...this.pulled].filter(([id]) => !want.includes(id));
+    const want = [...this.pubs];
+    const gone = [...this.pulled].filter(([id]) => this.stale || !want.includes(id));
+    this.stale = false;
     if (gone.length) {
       await sfuRequest(this.room, "close", { mids: gone.map(([, mid]) => mid) });
       for (const [id, mid] of gone) {
