@@ -61,10 +61,11 @@ Seguridad del secreto: el mapeo mente→cuerpo vive **solo en memoria privada de
 
 ## Voz en el lobby 🎙️
 
-Solo en la sala de espera: al empezar la partida se corta y al volver al lobby se rearma sola.
+En la sala de espera siempre; en la partida, solo si el host activa el check de voz.
 
 - La voz se modula **en el navegador** de quien habla (`apps/web/src/voice/`); a los demás solo les llega la voz procesada. Motores en orden de fallback: Signalsmith Stretch → Tone.js → nativo → robot. Para probar uno: `?voiceEngine=signalsmith|tone|native|robot`.
-- El audio va **P2P** (malla WebRTC, 1 conexión por jugador) y Colyseus solo hace de señalización (mensaje `rtc`). No pasa por el server.
+- **Transporte:** con `CF_SFU_APP_ID` + `CF_SFU_APP_TOKEN` (panel de Cloudflare › Realtime › Serverless SFU) el audio pasa por el **SFU de Cloudflare**: cada quien sube una pista y el server decide qué oye cada uno (capa gratis de 1.000 GB/mes). Sin esas variables, malla **P2P** con Colyseus como señalización. En local van en `.env` (raíz o `apps/server/`); opcional `CF_TURN_KEY_ID` + `CF_TURN_KEY_TOKEN` para TURN.
+- **🎙️ Chat global y privado por voz** (check del lobby, solo con el SFU): ☀️ el chat global se vuelve una sala de voz y 🌙 el privado, llamadas 1 a 1 (ilimitadas, una a la vez; contestar o rechazar). Hablas con la voz **del dueño del cuerpo** que ocupas, y las pistas se etiquetan por cuerpo: el navegador nunca sabe qué mente habla.
 - **ICE:** por defecto solo STUN público. En redes 4G, CGNAT o corporativas hace falta un **TURN** (p. ej. coturn propio): `VITE_ICE_SERVERS='[{"urls":"stun:stun.l.google.com:19302"},{"urls":"turn:mi.turn:3478","username":"u","credential":"p"}]'`. Se lee al compilar el front, así que en Render va como variable de entorno del build y hay que redeployar.
 - **Diagnóstico:** la consola del navegador muestra los pasos con el prefijo `[voz]` (candidatos ICE, estados y el motivo si falla). El server imprime cada minuto `📊 CPU · RAM · salas · clientes · señales voz` (`STATS_SECONDS`, 0 = apagado) y los errores no capturados.
 - **Probar en el celular:** `getUserMedia` exige https o localhost, así que por la IP de la red local el micrófono no anda. Usa `HTTPS=1 npm run dev` (certificado autofirmado, Vite hace de proxy al server) y entra a `https://<tu-ip>:5173`, o usa un túnel.
