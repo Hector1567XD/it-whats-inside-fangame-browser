@@ -4,19 +4,24 @@ import type { Room } from "colyseus.js";
 import {
   client, saveReconnect, loadReconnect, clearReconnect, roomInfo, autoChats, autoCycles, skipNeeded, isImmutableMode, MODES,
   type StateView, type ChatMsg, type DmMsg, type ResultsPayload, type PlayerView, type Settings, type Mode, type Phase,
-  type Role, type Verdict, type ChatEdge, type CallState, ghostCount,
+  type Role, type Verdict, type ChatEdge, type CallState, type NightMode, ghostCount, channels, hasRadioPhase,
 } from "./net";
 import { Avatar, STYLES, STYLE_IDS, randomSeed, validAvatar, type StyleId } from "./Avatar";
 import { PhaseBanner, Stars, SwapScreen } from "./Overlay";
-import { GroupChat, Night, type Lookup, type Me } from "./Chat";
+import { GroupChat, type Lookup, type Me } from "./Chat";
 import { DayView, Guess, QuestionPhase, ThreadPhase, type Social } from "./Phases";
 import { Results } from "./Results";
+import { RoundDetailsView } from "./Details";
+import { ExactPhase } from "./Exact";
+import { PrivatePhase } from "./Private";
 import { SpectatorNote, VerdictScreen, VotePhase, type Floater } from "./Vote";
 import { sfx, isMuted, setMuted } from "./sfx";
+import { SONGS, setMusic } from "./music";
 import { useVoice, type Voice } from "./voice/useVoice";
 import { VoiceSetup } from "./voice/VoiceSetup";
 import { VoiceBar, voiceIcon } from "./voice/VoiceBar";
-import { NightVoice } from "./voice/VoicePhases";
+import { VoiceStrip } from "./voice/VoicePhases";
+import { WALKIE_LABELS } from "./voice/chain";
 
 const COLORS = ["#ff4d8d", "#ff8a3d", "#ffd23d", "#5ee37a", "#3dd6ff", "#6c7bff", "#b36bff", "#ffffff"];
 const randomColor = () => COLORS[Math.floor(Math.random() * COLORS.length)];
@@ -24,8 +29,8 @@ const codeFromUrl = () => new URLSearchParams(location.search).get("room")?.toUp
 const load = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 const save = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch {} };
 
-const PLAYING: Phase[] = ["SWAP", "QUESTION", "THREAD", "DAY", "NIGHT", "UNMASK", "VOTE", "VERDICT", "GUESS", "FINAL_VOTE"];
-const SKIPPABLE: Phase[] = ["QUESTION", "THREAD", "DAY", "NIGHT", "UNMASK", "VOTE", "GUESS", "FINAL_VOTE"];
+const PLAYING: Phase[] = ["SWAP", "QUESTION", "THREAD", "DAY", "NIGHT", "RADIO", "UNMASK", "VOTE", "VERDICT", "GUESS", "FINAL_VOTE", "EXACT"];
+const SKIPPABLE: Phase[] = ["QUESTION", "THREAD", "DAY", "NIGHT", "RADIO", "UNMASK", "VOTE", "GUESS", "FINAL_VOTE", "EXACT"];
 
 export default function App() {
   const [room, setRoom] = useState<Room | null>(null);
@@ -261,7 +266,8 @@ function Game({ room }: { room: Room }) {
   const [dms, setDms] = useState<Record<string, DmMsg[]>>({});
   const [used, setUsed] = useState(0);
   const [graph, setGraph] = useState<ChatEdge[]>([]); // solo llega si soy espectador
-  const [calls, setCalls] = useState<CallState>({ target: "", incoming: [], pairs: [] }); // 🌙 llamadas por voz
+  const [calls, setCalls] = useState<CallState>({ target: "", incoming: [], pairs: [] }); // 📻 Llamadas de radio
+  const [myRatings, setMyRatings] = useState<Record<string, number>>({}); // 🎯 lo que califiqué (al reconectar)
   const [results, setResults] = useState<ResultsPayload | null>(null);
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [floats, setFloats] = useState<Floater[]>([]);
@@ -326,7 +332,9 @@ function Game({ room }: { room: Room }) {
     room.onMessage("quota", ({ used }: { used: number }) => setUsed(used));
     room.onMessage("chatGraph", setGraph);
     room.onMessage("callState", setCalls);
-    room.onMessage("callDeclined", ({ byBody }: { byBody: string }) => { sfx.fail(); flash(`📵 ${room.state.players.get(byBody)?.name ?? "Alguien"} rechazó tu llamada`, "error"); });
+    room.onMessage("callDeclined", ({ byBody }: { byBody: string }) => { sfx.fail(); flash(`📵 ${room.state.players.get(byBody)?.name ?? "Alguien"} rechazó tu llamada de radio`, "error"); });
+    room.onMessage("myRatings", setMyRatings);
+    room.onMessage("hostChanged", ({ id }: { id: string }) => { sfx.join(); flash(`👑 ${room.state.players.get(id)?.name ?? "Alguien"} ahora es el host`, "skip"); });
     room.onMessage("typing", ({ body, dm }: { body: string; dm?: boolean }) => {
       const key = (dm ? "d:" : "g:") + body;
       setTyping((t) => ({ ...t, [key]: Date.now() + 3000 }));
@@ -357,12 +365,18 @@ function Game({ room }: { room: Room }) {
   useEffect(() => {
     if (!s) return;
     if (s.phase === "NIGHT") { setDms({}); setUsed(0); setSeen({}); }
+    if (s.phase === "EXACT") setMyRatings({});
     if (s.phase === "QUESTION") { setLiked(new Set()); setSussed(new Set()); }
     setTyping({});
     if (s.phase === "LOBBY") { setResults(null); setRevealed(false); }
     if (s.phase === "SWAP" && s.cycle === 0) setChat([]);
     if (s.phase !== "VERDICT") setVerdict(null);
   }, [phaseKey]);
+
+  // 🎵 Música de la sala: solo en el lobby, la que eligió el host.
+  const song = s?.phase === "LOBBY" ? s.settings.music : 0;
+  useEffect(() => { setMusic(song); }, [song]);
+  useEffect(() => () => setMusic(0), []);
 
   // tic-tac en los últimos segundos
   useEffect(() => {
@@ -397,21 +411,49 @@ function Game({ room }: { room: Room }) {
         {s.phase === "QUESTION" && <QuestionPhase room={room} s={s} me={me} P={P} players={players} />}
         {s.phase === "THREAD" && <ThreadPhase room={room} s={s} me={me} P={P} players={players} social={social} typing={typingIn("g:")} />}
         {s.phase === "DAY" && <DayView room={room} s={s} chat={chat} me={me} P={P} players={players} social={social} typing={typingIn("g:")} voice={voice} />}
-        {s.phase === "NIGHT" && voice.inGame && <NightVoice room={room} s={s} players={players} me={me} used={used} P={P} v={voice} calls={calls} graph={graph} />}
-        {s.phase === "NIGHT" && !voice.inGame && <Night room={room} s={s} players={players} me={me} dms={dms} used={used} P={P} typing={typingIn("d:")} seen={seen} graph={graph} />}
-        {["UNMASK", "VOTE", "FINAL_VOTE"].includes(s.phase) && (
-          <VotePhase key={s.phase + s.cycle} room={room} s={s} me={me} role={role} P={P} players={players} floats={floats} react={react} />
+        {(s.phase === "NIGHT" || s.phase === "RADIO") && (
+          <PrivatePhase key={s.phase + s.cycle} room={room} s={s} players={players} me={me} dms={dms} used={used} P={P}
+            typing={typingIn("d:")} seen={seen} graph={graph} voice={voice} calls={calls} />
+        )}
+        {["UNMASK", "VOTE", "FINAL_VOTE", "GUESS", "EXACT"].includes(s.phase) && (
+          <WithPhaseChat room={room} s={s} chat={chat} me={me} P={P} players={players} typing={typingIn("g:")} voice={voice}>
+            {s.phase === "GUESS" ? <Guess room={room} s={s} players={players} me={me} P={P} role={role} />
+              : s.phase === "EXACT" ? <ExactPhase key={s.round} room={room} me={me} P={P} players={players} initial={myRatings} />
+              : <VotePhase key={s.phase + s.cycle} room={room} s={s} me={me} role={role} P={P} players={players} floats={floats} react={react} />}
+          </WithPhaseChat>
         )}
         {s.phase === "VERDICT" && <VerdictScreen v={verdict} P={P} me={me} floats={floats} react={react} />}
-        {s.phase === "GUESS" && <Guess room={room} s={s} players={players} me={me} P={P} />}
         {s.phase === "RESULTS" && (
           <>
             <Results data={results} P={P} me={me} isHost={isHost} room={room} onRevealed={setRevealed} />
+            {revealed && results && <RoundDetailsView data={results} P={P} players={players} />}
             {revealed && <GroupChat className="results-chat" room={room} entries={chat} me={me} P={P} people={players} speakAs={P(me.mindId)?.name ?? ""} />}
           </>
         )}
         {spectator && ["DAY", "THREAD"].includes(s.phase) && <SpectatorNote />}
       </main>
+    </div>
+  );
+}
+
+/**
+ * Votaciones, 🧩 y 🎯 con chat (si el host lo activó): la fase a la izquierda y el chat del cuerpo a la derecha;
+ * arriba del chat, la tira de voz si también hay voz.
+ */
+function WithPhaseChat({ room, s, chat, me, P, players, typing, voice, children }: {
+  room: Room; s: StateView; chat: ChatMsg[]; me: Me; P: Lookup; players: PlayerView[]; typing: Set<string>; voice: Voice; children: ReactNode;
+}) {
+  const ch = channels(s.settings, s.phase, s.sfu);
+  if (!ch.text) return <>{children}</>;
+  const people = players.filter((p) => !p.bodyOut);
+  return (
+    <div className="split vote-split">
+      {children}
+      <div className="chat-col">
+        {ch.voice && voice.inGame && <VoiceStrip v={voice} people={people} me={me} P={P} />}
+        <GroupChat room={room} entries={chat} me={me} P={P} people={people} speakAs={P(me.bodyId)?.name ?? ""}
+          readOnly={!!me.spectator} heads={people} typing={typing} />
+      </div>
     </div>
   );
 }
@@ -424,7 +466,12 @@ function phaseLabel(s: StateView) {
     case "QUESTION": return `❓ La Pregunta${cyc}`;
     case "THREAD": return `🦜 El Hilo ${s.thread + 1}/${s.posts.length}${cyc}`;
     case "DAY": return `☀️ Chat global${cyc}`;
-    case "NIGHT": return `🌙 Chat privado${cyc}`;
+    case "NIGHT": {
+      const ch = channels(s.settings, "NIGHT", s.sfu);
+      return !ch.text ? `📻 Llamada de radio${cyc}` : ch.voice ? `🌙 Chat privado + 📻 radio${cyc}` : `🌙 Chat privado${cyc}`;
+    }
+    case "RADIO": return `📻 Llamada de radio${cyc}`;
+    case "EXACT": return "🎯 Exactitud";
     case "UNMASK": return `🎭 El Desenmascare${cyc}`;
     case "VOTE": return `🗳️ La Votación${cyc}`;
     case "VERDICT": return "⚖️ Resultado";
@@ -500,6 +547,19 @@ function Lobby({ s, players, isHost, room, voice }: { s: StateView; players: Pla
   const enough = players.length >= s.minPlayers;
   const played = s.round > 0;
   const list = played ? [...players].sort((a, b) => b.score - a.score) : players;
+  // 👑 Ceder el host: primer toque pide confirmar, el segundo lo pasa.
+  const [giving, setGiving] = useState("");
+  useEffect(() => {
+    if (!giving) return;
+    const t = setTimeout(() => setGiving(""), 3000);
+    return () => clearTimeout(t);
+  }, [giving]);
+  function give(id: string) {
+    sfx.click();
+    if (giving !== id) return setGiving(id);
+    setGiving("");
+    room.send("giveHost", { to: id });
+  }
   return (
     <div className="card lobby">
       {voice.showSetup && <VoiceSetup v={voice} />}
@@ -514,6 +574,11 @@ function Lobby({ s, players, isHost, room, voice }: { s: StateView; players: Pla
             </span> {p.name}
             <span className="voice-icon" title="Voz">{voiceIcon(p)}</span>
             {p.id === s.hostId && <span className="tag">👑 HOST</span>}
+            {isHost && p.id !== s.hostId && p.connected && (
+              <button className={"chip give-host" + (giving === p.id ? " confirm" : "")} onClick={() => give(p.id)} title={`Pasarle el host a ${p.name}`}>
+                {giving === p.id ? "✅ ¿Seguro?" : "👑 Ceder"}
+              </button>
+            )}
             {played && (
               <span className="score">
                 {p.lastPoints !== 0 && <span className={"last" + (p.lastPoints < 0 ? " neg" : "")}>{p.lastPoints > 0 ? "+" : ""}{p.lastPoints}</span>} <b>{p.score}</b> pts
@@ -536,77 +601,62 @@ function Lobby({ s, players, isHost, room, voice }: { s: StateView; players: Pla
   );
 }
 
-function Toggle({ label, on, disabled, onChange }: { label: ReactNode; on: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
+function Toggle({ label, on, disabled, onChange, sub, hint }: {
+  label: ReactNode; on: boolean; disabled?: boolean; onChange: (v: boolean) => void; sub?: boolean; hint?: ReactNode;
+}) {
   return (
-    <button type="button" className="toggle" aria-pressed={on} disabled={disabled} onClick={() => onChange(!on)}>
-      <span className="box" /> <span>{label}</span>
+    <button type="button" className={"toggle" + (sub ? " sub" : "")} aria-pressed={on} disabled={disabled} onClick={() => onChange(!on)}>
+      <span className="box" /> <span>{label}{hint && <small className="toggle-hint">{hint}</small>}</span>
     </button>
   );
 }
 
+/** Varias opciones, una elegida (p. ej. qué chat privado hay de noche). */
+function Segmented<T extends string | number>({ value, options, disabled, onChange, sub }: {
+  value: T; options: [T, ReactNode][]; disabled?: boolean; onChange: (v: T) => void; sub?: boolean;
+}) {
+  return (
+    <div className={"segmented" + (sub ? " sub" : "")}>
+      {options.map(([v, label]) => (
+        <button key={String(v)} type="button" className={v === value ? "on" : ""} disabled={disabled} onClick={() => onChange(v)}>{label}</button>
+      ))}
+    </div>
+  );
+}
+
+type SetTab = "game" | "times" | "votes" | "voice" | "room";
+type Row = { label: string; value: string; dec: () => void; inc: () => void };
+
+/**
+ * ⚙️ Configuración de la partida, en pestañas: 🎮 Partida · ⏱ Tiempos · 🗳️ Votaciones · 🎙️ Voz · 🎵 Sala.
+ * Las opciones que dependen de otra aparecen debajo, con sangría, solo cuando esa otra está activa.
+ * Abajo siempre queda el orden de la ronda y los avisos. Los demás la ven igual, sin poder tocarla.
+ */
 function SettingsPanel({ s, isHost, room, players }: { s: StateView; isHost: boolean; room: Room; players: number }) {
   const st = s.settings;
   const inm = isImmutableMode(st.mode);
+  const [tab, setTab] = useState<SetTab>("game");
   const [warn, setWarn] = useState(false);
   const set = (patch: Partial<Settings>) => { sfx.click(); room.send("settings", patch); };
   const fmt = (sec: number) => (sec === 0 ? "Off" : sec >= 60 ? `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")} min` : `${sec}s`);
-  const time = (label: string, key: keyof Settings, step: number) => ({
+  const time = (label: string, key: keyof Settings, step: number): Row => ({
     label, value: fmt(st[key] as number),
     dec: () => set({ [key]: (st[key] as number) - step }), inc: () => set({ [key]: (st[key] as number) + step }),
   });
   const cycles = st.cycles > 0 ? st.cycles : autoCycles(st.mode, players, st.earlyVote);
   const voteName = inm ? "🗳️ La Votación" : "🎭 El Desenmascare";
   const finalName = inm ? "⚖️ Juicio Final" : "🧩 ¿Quién es quién?";
+  const voice = st.voicePhases && s.sfu;
+  const radioPhase = hasRadioPhase(st, s.sfu);
+  const night = channels(st, "NIGHT", s.sfu);
+  const lock = !isHost;
 
   function toggleEarly(v: boolean) {
     if (v && players < 7) return setWarn(true);
     set({ earlyVote: v });
   }
 
-  const rows = [
-    {
-      label: "🔁 Ciclos", value: st.cycles === 0 ? `Auto (${cycles})` : `${st.cycles}`,
-      dec: () => set({ cycles: Math.max(0, st.cycles - 1) }), inc: () => set({ cycles: st.cycles + 1 }),
-    },
-    time("❓ La Pregunta", "questionSeconds", 15),
-    time("🦜 El Hilo (c/ respuesta)", "threadSeconds", 5),
-    time("☀️ Chat global", "daySeconds", 15),
-    time("🌙 Chat privado", "nightSeconds", 15),
-    time(finalName, "guessSeconds", 15),
-    {
-      label: "📻 Walkie-talkie (voz)", value: ["Off", "Poquito", "Bastante"][st.voiceWalkie] ?? "Off",
-      dec: () => set({ voiceWalkie: Math.max(0, st.voiceWalkie - 1) }), inc: () => set({ voiceWalkie: Math.min(2, st.voiceWalkie + 1) }),
-    },
-    {
-      label: "💬 Chats por noche",
-      value: st.chatsPerNight === 0 ? `Auto (${autoChats(players)})` : `${st.chatsPerNight}`,
-      dec: () => set({ chatsPerNight: Math.max(0, st.chatsPerNight - 1) }),
-      inc: () => set({ chatsPerNight: st.chatsPerNight + 1 }),
-    },
-  ];
-  const earlyRows = st.earlyVote ? [
-    time(`⏱ ${voteName}`, "voteSeconds", 5),
-    {
-      label: "🚪 Máx. expulsiones", value: st.maxEjections === 0 ? "Sin límite" : `${st.maxEjections}`,
-      dec: () => set({ maxEjections: Math.max(0, st.maxEjections - 1) }), inc: () => set({ maxEjections: st.maxEjections + 1 }),
-    },
-  ] : [];
-
-  const perCycle = [
-    st.questionSeconds > 0 && "❓",
-    st.questionSeconds > 0 && st.threadSeconds > 0 && "🦜",
-    st.daySeconds > 0 && "☀️",
-    st.nightSeconds > 0 && "🌙",
-  ].filter(Boolean).join(" → ");
-  const between = [st.earlyVote && (inm ? "🗳️" : "🎭"), st.mode === "immutable" && "🧳"].filter(Boolean).join(" → ");
-  const warnings: string[] = [];
-  if (st.earlyVote && cycles < 2) warnings.push(`Con 1 ciclo no hay ${voteName}: al último ciclo le sigue ${finalName}.`);
-  if (st.earlyVote && players < 7) warnings.push(`Con menos de 7 jugadores ${voteName} entre ciclos suele sacar a alguien muy pronto.`);
-  if (st.mode === "immutable" && cycles > Math.max(1, players - 4)) {
-    warnings.push(`Con ${players} jugadores y ${cycles} ciclos los cambiantes pueden deducir al Inmutable por eliminación.`);
-  }
-
-  const row = (r: { label: string; value: string; dec: () => void; inc: () => void }) => (
+  const row = (r: Row) => (
     <div key={r.label} className="set-row">
       <span>{r.label}</span>
       <div className="stepper">
@@ -617,24 +667,148 @@ function SettingsPanel({ s, isHost, room, players }: { s: StateView; isHost: boo
     </div>
   );
 
+  // Resumen de cada pestaña (se ve en la pestaña misma, así no hay que abrirlas todas para saber qué hay)
+  const on = (b: boolean) => (b ? " •" : "");
+  const tabs: [SetTab, string][] = [
+    ["game", `${MODES[st.mode].icon} Modo`],
+    ["times", "⏱ Tiempos"],
+    ["votes", `🗳️ Votaciones${on(st.earlyVote || st.voteChat || st.exactPhase || (inm && st.immGuess))}`],
+    ["voice", `🎙️ Voz${on(voice)}`],
+    ["room", `🎵 Sala${on(st.music > 0)}`],
+  ];
+
+  let body: ReactNode;
+  if (tab === "game") {
+    body = (
+      <>
+        <ModePicker mode={st.mode} disabled={lock} onChange={(m) => set({ mode: m })} />
+        {row({
+          label: "🔁 Ciclos", value: st.cycles === 0 ? `Auto (${cycles})` : `${st.cycles}`,
+          dec: () => set({ cycles: Math.max(0, st.cycles - 1) }), inc: () => set({ cycles: st.cycles + 1 }),
+        })}
+        {row({
+          label: "💬 Chats por noche", value: st.chatsPerNight === 0 ? `Auto (${autoChats(players)})` : `${st.chatsPerNight}`,
+          dec: () => set({ chatsPerNight: Math.max(0, st.chatsPerNight - 1) }), inc: () => set({ chatsPerNight: st.chatsPerNight + 1 }),
+        })}
+      </>
+    );
+  } else if (tab === "times") {
+    body = (
+      <>
+        {[
+          time("❓ La Pregunta", "questionSeconds", 15),
+          time("🦜 El Hilo (c/ respuesta)", "threadSeconds", 5),
+          time("☀️ Chat global", "daySeconds", 15),
+          time(night.text ? "🌙 Chat privado" : "📻 Llamada de radio", "nightSeconds", 15),
+          ...(radioPhase ? [time("📻 Llamada de radio", "radioSeconds", 15)] : []),
+          ...(st.earlyVote ? [time(`⏱ ${voteName}`, "voteSeconds", 5)] : []),
+          time(finalName, "guessSeconds", 15),
+          ...(st.exactPhase ? [time("🎯 Exactitud", "exactSeconds", 5)] : []),
+        ].map(row)}
+        <p className="muted small">Pon una fase en <b>Off</b> para saltártela. {inm && st.immGuess && "🧩 ¿Quién es quién? usa el mismo tiempo que el Juicio Final."}</p>
+      </>
+    );
+  } else if (tab === "votes") {
+    body = (
+      <div className="checks">
+        <Toggle label={`${voteName} entre ciclos`} on={st.earlyVote} disabled={lock} onChange={toggleEarly} />
+        {st.earlyVote && st.mode === "classic" && (
+          <Toggle sub label="Se puede desenmascarar a quien no cambió" on={st.unmaskSame} disabled={lock} onChange={(v) => set({ unmaskSame: v })} />
+        )}
+        {st.earlyVote && row({
+          label: "🚪 Máx. expulsiones", value: st.maxEjections === 0 ? "Sin límite" : `${st.maxEjections}`,
+          dec: () => set({ maxEjections: Math.max(0, st.maxEjections - 1) }), inc: () => set({ maxEjections: st.maxEjections + 1 }),
+        })}
+        {inm && (
+          <Toggle label="🧩 ¿Quién es quién? antes del Juicio Final" on={st.immGuess} disabled={lock} onChange={(v) => set({ immGuess: v })}
+            hint="Adivinen qué mente hay en cada cuerpo: los cambiantes también tienen que cuidarse. Ideal en El No Cambiante." />
+        )}
+        <Toggle label="💬 Chat en las votaciones" on={st.voteChat} disabled={lock} onChange={(v) => set({ voteChat: v })}
+          hint="Mientras votan, cada quien habla como su cuerpo." />
+        {st.voteChat && (
+          <Toggle sub label="🎙️ También por voz" on={st.voteVoice} disabled={lock || !voice} onChange={(v) => set({ voteVoice: v })}
+            hint={!voice ? "Activa primero el chat de voz (pestaña 🎙️ Voz)." : "Sala de voz en las votaciones y en 🎯 Exactitud."} />
+        )}
+        <Toggle label="🎯 Exactitud (antes de los resultados)" on={st.exactPhase} disabled={lock} onChange={(v) => set({ exactPhase: v })}
+          hint="Todos califican con ★ qué tan bien imitaron a cada cuerpo. Tu voto sobre tu cuerpo vale 2×; sobre los demás, 0,5×. Suma puntos al imitador." />
+        {st.exactPhase && (
+          <Toggle sub label="💬 Chat durante la Exactitud" on={st.exactChat} disabled={lock} onChange={(v) => set({ exactChat: v })}
+            hint="Para discutir quién lo hizo bien o mal." />
+        )}
+      </div>
+    );
+  } else if (tab === "voice") {
+    body = (
+      <div className="checks">
+        <Toggle label="🎙️ Chat de voz en la partida" on={st.voicePhases} disabled={lock || !s.sfu} onChange={(v) => set({ voicePhases: v })}
+          hint={!s.sfu ? "Requiere el servidor de voz." : "Tu voz suena con la del dueño del cuerpo que ocupas."} />
+        {st.voicePhases && (
+          <>
+            <Toggle sub label="💬🎙️ Chat de voz y texto a la vez" on={st.voiceText} disabled={lock} onChange={(v) => set({ voiceText: v })}
+              hint="En el ☀️ chat global hay sala de voz y chat escrito juntos." />
+            <div className="set-sub">
+              <span className="set-sub-label">🌙 De noche, en privado:</span>
+              <Segmented<NightMode> sub value={st.nightMode} disabled={lock} onChange={(v) => set({ nightMode: v })}
+                options={[["radio", "📻 Llamada de radio"], ["chat", "💬 Chat privado"], ["both", "📻 + 💬 Ambas"]]} />
+              <small className="toggle-hint">
+                📻 La radio es en vivo: llamas, y el otro acepta o rechaza. 💬 El chat es asíncrono, con límite de chats por noche.
+              </small>
+            </div>
+            {st.nightMode === "both" && (
+              <Toggle sub label="✂️ Separar chats privados y Llamada de radio" on={st.splitRadio} disabled={lock} onChange={(v) => set({ splitRadio: v })}
+                hint={st.splitRadio ? "Primero 🌙 chat privado y después su propia fase de 📻 Llamada de radio." : "Apagado: las dos a la vez, en pestañas."} />
+            )}
+          </>
+        )}
+        {row({
+          label: "📻 Efecto walkie-talkie", value: WALKIE_LABELS[st.voiceWalkie] ?? "Off",
+          dec: () => set({ voiceWalkie: Math.max(0, st.voiceWalkie - 1) }), inc: () => set({ voiceWalkie: Math.min(3, st.voiceWalkie + 1) }),
+        })}
+        <p className="muted small">Poquito: filtro de radio. Distorsión: además satura la voz. Radio: además estática, que suena solo mientras hablas.</p>
+      </div>
+    );
+  } else {
+    body = (
+      <>
+        <div className="set-sub">
+          <span className="set-sub-label">🎵 Música de la sala de espera</span>
+          <Segmented<number> value={st.music} disabled={lock} onChange={(v) => set({ music: v })}
+            options={[[0, "🔇 Sin música"], ...SONGS.map((song, i) => [i + 1, `${song.icon} ${song.label}`] as [number, string])]} />
+        </div>
+        <p className="muted small">Suave y bajita, solo en la sala de espera. Cada quien la apaga con el 🔊 de arriba.</p>
+      </>
+    );
+  }
+
+  const perCycle = [
+    st.questionSeconds > 0 && "❓",
+    st.questionSeconds > 0 && st.threadSeconds > 0 && "🦜",
+    st.daySeconds > 0 && "☀️",
+    st.nightSeconds > 0 && (night.text ? (night.voice ? "🌙📻" : "🌙") : "📻"),
+    radioPhase && st.radioSeconds > 0 && "📻",
+  ].filter(Boolean).join(" → ");
+  const between = [st.earlyVote && (inm ? "🗳️" : "🎭"), st.mode === "immutable" && "🧳"].filter(Boolean).join(" → ");
+  const ending = [inm && st.immGuess && "🧩", finalName, st.exactPhase && "🎯 Exactitud"].filter(Boolean).join(" → ");
+  const warnings: string[] = [];
+  if (st.earlyVote && cycles < 2) warnings.push(`Con 1 ciclo no hay ${voteName}: al último ciclo le sigue ${finalName}.`);
+  if (st.earlyVote && players < 7) warnings.push(`Con menos de 7 jugadores ${voteName} entre ciclos suele sacar a alguien muy pronto.`);
+  if (st.mode === "immutable" && cycles > Math.max(1, players - 4)) {
+    warnings.push(`Con ${players} jugadores y ${cycles} ciclos los cambiantes pueden deducir al Inmutable por eliminación.`);
+  }
+
   return (
     <div className="settings">
       <h3>⚙️ Partida {isHost ? "" : <span className="muted">(la configura el host)</span>}</h3>
-      <ModePicker mode={st.mode} disabled={!isHost} onChange={(m) => set({ mode: m })} />
-      {rows.map(row)}
-      <div className="checks">
-        <Toggle label={<>🎙️ Chat global y privado por voz{!s.sfu && <small className="muted"> (requiere el servidor de voz)</small>}</>}
-          on={st.voicePhases} disabled={!isHost || !s.sfu} onChange={(v) => set({ voicePhases: v })} />
-        <Toggle label={`${voteName} entre ciclos`} on={st.earlyVote} disabled={!isHost} onChange={toggleEarly} />
-        {st.earlyVote && st.mode === "classic" && (
-          <Toggle label="Se puede desenmascarar a quien no cambió" on={st.unmaskSame} disabled={!isHost} onChange={(v) => set({ unmaskSame: v })} />
-        )}
+      <div className="tabs set-tabs">
+        {tabs.map(([id, label]) => (
+          <button key={id} className={"tab" + (tab === id ? " on" : "")} onClick={() => { sfx.click(); setTab(id); }}>{label}</button>
+        ))}
       </div>
-      {earlyRows.map(row)}
+      <div className="set-body" key={tab}>{body}</div>
       {warnings.map((w) => <p key={w} className="set-warn">⚠️ {w}</p>)}
-      <p className="muted small">
-        Orden: 🧳 → {perCycle || between ? `(${[perCycle, between].filter(Boolean).join(" → ")})${cycles > 1 ? ` ×${cycles}` : ""} → ` : ""}{finalName} → 🏆.
-        {" "}La votación entre ciclos no ocurre en el último ciclo. Pon una fase en <b>Off</b> para saltártela.
+      <p className="muted small set-flow">
+        Orden: 🧳 → {perCycle || between ? `(${[perCycle, between].filter(Boolean).join(" → ")})${cycles > 1 ? ` ×${cycles}` : ""} → ` : ""}{ending} → 🏆.
+        {" "}La votación entre ciclos no ocurre en el último ciclo.
       </p>
       {warn && createPortal(
         <div className="modal-bg" onClick={() => setWarn(false)}>

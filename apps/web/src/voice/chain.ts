@@ -1,7 +1,15 @@
 import { buildEngine, pickEngine, Links, type Engine, type EngineId } from "./engines";
 import type { VoiceParams } from "./presets";
 
-export type WalkieLevel = 0 | 1 | 2;
+/** 📻 0 = off · 1 = poquito · 2 = distorsión (sin estática) · 3 = radio (estática solo mientras hablas). */
+export type WalkieLevel = 0 | 1 | 2 | 3;
+export const WALKIE_LABELS = ["Off", "Poquito", "Distorsión", "Radio"];
+
+const curveOf = (fn: (x: number) => number, n = 1024) => {
+  const c = new Float32Array(n);
+  for (let i = 0; i < n; i++) c[i] = fn((i / (n - 1)) * 2 - 1);
+  return c;
+};
 
 /**
  * input → motor de tono → timbre (lowshelf + highshelf) → walkie → compresor → out.
@@ -65,7 +73,7 @@ class Pipeline {
     try { this.high.disconnect(); } catch {}
     const L = this.walkieLinks;
     if (level === 0) return L.link(this.high, this.comp);
-    const [hpHz, lpHz, drive] = level === 1 ? [300, 3400, 1.5] : [500, 2600, 4];
+    const [hpHz, lpHz, drive] = level === 1 ? [300, 3400, 1.5] : level === 2 ? [450, 2800, 5] : [500, 2600, 4];
     const hp = ctx.createBiquadFilter();
     hp.type = "highpass";
     hp.frequency.value = hpHz;
@@ -73,15 +81,26 @@ class Pipeline {
     lp.type = "lowpass";
     lp.frequency.value = lpHz;
     const sh = ctx.createWaveShaper();
-    const curve = new Float32Array(1024);
-    for (let i = 0; i < 1024; i++) curve[i] = Math.tanh(drive * (i / 511.5 - 1)) / Math.tanh(drive);
-    sh.curve = curve;
+    sh.curve = curveOf((x) => Math.tanh(drive * x) / Math.tanh(drive));
+    sh.oversample = level === 2 ? "2x" : "none";
     L.link(this.high, hp);
     L.link(hp, lp);
     L.link(lp, sh);
-    L.link(sh, this.comp);
     if (level === 2) {
-      // un poco de estática de fondo, a −35 dB
+      // Distorsión: un pico nasal a ~1,4 kHz (parlante chico) además de la saturación. Sin estática.
+      const nasal = ctx.createBiquadFilter();
+      nasal.type = "peaking";
+      nasal.frequency.value = 1400;
+      nasal.Q.value = 1.2;
+      nasal.gain.value = 7;
+      L.link(sh, nasal);
+      L.link(nasal, this.comp);
+      return;
+    }
+    L.link(sh, this.comp);
+    if (level === 3) {
+      // Estática que suena SOLO mientras hablas: un seguidor de envolvente de la voz (|x| → pasa-bajos → umbral)
+      // maneja la ganancia del ruido. En silencio queda en 0 (nada de siseo constante).
       const nb = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
       const d = nb.getChannelData(0);
       for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -90,9 +109,20 @@ class Pipeline {
       noise.loop = true;
       const nhp = ctx.createBiquadFilter();
       nhp.type = "highpass";
-      nhp.frequency.value = 800;
+      nhp.frequency.value = 900;
       const ng = ctx.createGain();
-      ng.gain.value = Math.pow(10, -35 / 20);
+      ng.gain.value = 0;
+      const rect = ctx.createWaveShaper();
+      rect.curve = curveOf(Math.abs);
+      const smooth = ctx.createBiquadFilter();
+      smooth.type = "lowpass";
+      smooth.frequency.value = 12;
+      const gate = ctx.createWaveShaper();
+      gate.curve = curveOf((x) => (x > 0.012 ? Math.min(0.06, (x - 0.012) * 0.8) : 0), 2048);
+      L.link(lp, rect);
+      L.link(rect, smooth);
+      L.link(smooth, gate);
+      L.link(gate, ng.gain);
       L.link(noise, nhp);
       L.link(nhp, ng);
       L.link(ng, this.comp);

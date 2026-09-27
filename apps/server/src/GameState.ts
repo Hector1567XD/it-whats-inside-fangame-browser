@@ -24,6 +24,8 @@ export class Player extends Schema {
 }
 
 export type Mode = "classic" | "all" | "immutable" | "still";
+/** 🌙 Qué chat privado hay de noche con la voz activada: 📻 Llamada de radio, 💬 chat de texto o ambos. */
+export type NightMode = "radio" | "chat" | "both";
 
 /** Configuración de la partida (la edita el host en el lobby). Un tiempo en 0 apaga esa fase. */
 export class Settings extends Schema {
@@ -39,8 +41,19 @@ export class Settings extends Schema {
   @type("number") voteSeconds = 30;
   @type("number") maxEjections = 1; // 0 = sin límite
   @type("boolean") unmaskSame = false; // (Clásico) se puede desenmascarar a quien no cambió
-  @type("number") voiceWalkie = 0; // 📻 0 = off, 1 = poquito, 2 = bastante (voz del lobby)
-  @type("boolean") voicePhases = false; // ☀️ Chat global y 🌙 privado por voz en vez de texto (requiere el SFU)
+  @type("number") voiceWalkie = 0; // 📻 0 = off, 1 = poquito, 2 = distorsión, 3 = radio (estática solo al hablar)
+  @type("boolean") voicePhases = false; // 🎙️ Chat de voz en partida (requiere el SFU)
+  @type("boolean") voiceText = false; // ☀️ voz y texto a la vez en el chat global
+  @type("string") nightMode: NightMode = "radio"; // 🌙 con voz: 📻 radio, 💬 chat o ambos
+  @type("boolean") splitRadio = false; // con "ambos": 🌙 chat privado y 📻 Llamada de radio en fases separadas
+  @type("number") radioSeconds = 90;
+  @type("boolean") voteChat = false; // 💬 chat en las votaciones (hablando como tu cuerpo)
+  @type("boolean") voteVoice = false; // 🎙️ …y también por voz (con el chat de voz activo)
+  @type("boolean") immGuess = false; // (Inmutables) 🧩 ¿Quién es quién? antes del Juicio Final
+  @type("boolean") exactPhase = false; // 🎯 Exactitud: calificar las imitaciones antes de los resultados
+  @type("boolean") exactChat = true; // 💬 chat durante 🎯 Exactitud
+  @type("number") exactSeconds = 45;
+  @type("number") music = 0; // 🎵 música de la sala: 0 = sin música, 1–3 = canción
 }
 
 /** Respuesta en El Hilo (un "cotorreo" en Cotorra 🦜). */
@@ -63,7 +76,7 @@ export class Post extends Schema {
 
 export type Phase =
   | "LOBBY" | "SWAP" | "QUESTION" | "THREAD" | "DAY" | "NIGHT"
-  | "UNMASK" | "VOTE" | "VERDICT" | "GUESS" | "FINAL_VOTE" | "RESULTS";
+  | "RADIO" | "UNMASK" | "VOTE" | "VERDICT" | "GUESS" | "FINAL_VOTE" | "EXACT" | "RESULTS";
 
 export class GameState extends Schema {
   @type("string") phase: Phase = "LOBBY";

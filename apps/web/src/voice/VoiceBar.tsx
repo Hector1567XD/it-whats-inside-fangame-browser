@@ -4,7 +4,7 @@ import { ENGINE_LABELS } from "./engines";
 import { VOICE_TYPES, isVoiceType } from "./presets";
 import type { Voice } from "./useVoice";
 
-/** Barra de voz del lobby: mute, ensordecer, ⚙️ reconfigurar y el motor en uso. */
+/** Barra de voz: mute, ensordecer, ⚙️ reconfigurar, 🔄 reconectar y el motor en uso. */
 export function VoiceBar({ v, P }: { v: Voice; P: (id: string) => PlayerView | undefined }) {
   const failed = Object.entries(v.peers).filter(([, st]) => st === "failed").map(([id]) => P(id)?.name ?? "?");
   if (v.mode === "off") {
@@ -26,6 +26,7 @@ export function VoiceBar({ v, P }: { v: Voice; P: (id: string) => PlayerView | u
         {v.deaf ? "🔕 Ensordecido" : "🔈 Oyendo"}
       </button>
       <button className="chip" onClick={() => { sfx.click(); v.openSetup(); }} title="Reconfigurar la voz">⚙️</button>
+      <button className="chip" onClick={() => { sfx.click(); v.reconnect(); }} title="Si no conectó, no oyes a nadie o no te oyen">🔄 Reconectar voz</button>
       <span className="voice-note">
         {v.mode === "listen" ? "🎧 Solo escuchas" : v.inGame ? "🎭 Voz de tu cuerpo" : v.profile && isVoiceType(v.profile.voice) && `${VOICE_TYPES[v.profile.voice].icon} ${VOICE_TYPES[v.profile.voice].label}`}
         {v.engine && ` · motor: ${ENGINE_LABELS[v.engine]}`}

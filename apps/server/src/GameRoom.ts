@@ -1,10 +1,10 @@
 import { Room, Client, ServerError, type Deferred } from "@colyseus/core";
-import { GameState, Player, Post, Reply, type Mode, type Phase, type Settings } from "./GameState.js";
+import { GameState, Player, Post, Reply, type Mode, type NightMode, type Phase, type Settings } from "./GameState.js";
 import { QUESTIONS } from "./questions.js";
 import { sfu, sfuEnabled, iceServers, type SessionDescription } from "./sfu.js";
 import {
   MODES, autoChats, autoCycles, isImmutableMode, minPlayersFor, resolveUnmask, resolvePlurality, skipNeeded, swapCount,
-  POINTS, type Verdict,
+  channels, hasRadioPhase, scoreExact, POINTS, type ExactScore, type Verdict,
 } from "./rules.js";
 
 const num = (v: string | undefined, d: number) => (v && !isNaN(+v) ? +v : d);
@@ -52,25 +52,44 @@ export type RoundResult = {
   fooled: number;
   bonus: "stealth" | "decoy" | null;
   early: number; // puntos ganados/perdidos en desenmascares
+  exact: number; // 🎯 Exactitud: puntos por lo bien que imitó al dueño del cuerpo
   points: number; // total de la ronda
 };
 export type Ejection = { cycle: number; kind: "UNMASK" | "VOTE" | "FINAL_VOTE"; bodyId: string; mindId: string; wasImmutable: boolean };
-export type ResultsPayload =
-  | { family: "guess"; mode: Mode; results: RoundResult[]; guesses: Record<string, Record<string, string>>; ejections: Ejection[] }
+/** 📜 Detalles de la ronda (se ven en los resultados, ya sin secretos). Cuerpos y mentes de ese momento. */
+export type NightEdge = { aBody: string; bBody: string; aMind: string; bMind: string; dms: number; calls: number; callSec: number; last: number };
+export type ThreadLogPost = { id: string; body: string; mind: string; text: string; likes: number; sus: number; replies: Omit<ThreadLogPost, "replies">[] };
+export type RoundDetails = {
+  nights: { cycle: number; edges: NightEdge[] }[];
+  threads: { cycle: number; question: string; posts: ThreadLogPost[] }[];
+  votes: { cycle: number; kind: Ejection["kind"]; ballots: { voter: string; voterBody: string; body: string | null; mind?: string }[] }[];
+  chat: Record<string, number>; // mente -> mensajes en el chat global de la partida
+  history: Record<string, string[]>; // mente -> cuerpos por los que pasó
+};
+type GuessBlock = { results: RoundResult[]; guesses: Record<string, Record<string, string>> };
+export type ResultsPayload = { details: RoundDetails; exact: ExactScore[] | null } & (
+  | ({ family: "guess"; mode: Mode; ejections: Ejection[] } & GuessBlock)
   | {
       family: "immutable"; mode: Mode; immutableId: string; winner: "changers" | "immutable";
       bodies: Record<string, string>; // mente -> cuerpo final
       history: Record<string, string[]>; // mente -> cuerpos por los que pasó
       ejections: Ejection[]; points: Record<string, number>;
-    };
+      guess: GuessBlock | null; // 🧩 ¿Quién es quién? antes del Juicio Final (si estaba activo)
+    }
+);
 
 type Quote = { id: string; body: string; text: string }; // cotorreo citado en el chat global
 type ChatMsg = { fromBody: string; real: boolean; tag: string; text: string; ts: number; quote?: Quote };
 type DmLog = { a: string; b: string; fromBody: string; text: string; ts: number }; // a = mente que escribe, b = destino
 
-const PLAYING: Phase[] = ["SWAP", "QUESTION", "THREAD", "DAY", "NIGHT", "UNMASK", "VOTE", "VERDICT", "GUESS", "FINAL_VOTE"];
-const SKIPPABLE: Phase[] = ["QUESTION", "THREAD", "DAY", "NIGHT", "UNMASK", "VOTE", "GUESS", "FINAL_VOTE"];
-const SUBMIT_PHASES: Phase[] = ["QUESTION", "UNMASK", "VOTE", "GUESS", "FINAL_VOTE"];
+const PLAYING: Phase[] = ["SWAP", "QUESTION", "THREAD", "DAY", "NIGHT", "RADIO", "UNMASK", "VOTE", "VERDICT", "GUESS", "FINAL_VOTE", "EXACT"];
+const SKIPPABLE: Phase[] = ["QUESTION", "THREAD", "DAY", "NIGHT", "RADIO", "UNMASK", "VOTE", "GUESS", "FINAL_VOTE", "EXACT"];
+const SUBMIT_PHASES: Phase[] = ["QUESTION", "UNMASK", "VOTE", "GUESS", "FINAL_VOTE", "EXACT"];
+const PRIVATE_PHASES: Phase[] = ["NIGHT", "RADIO"];
+const CHAT_TAGS: Partial<Record<Phase, string>> = {
+  DAY: "☀️ Chat global", UNMASK: "🎭 El Desenmascare", VOTE: "🗳️ La Votación", FINAL_VOTE: "⚖️ Juicio Final",
+  GUESS: "🧩 ¿Quién es quién?", EXACT: "🎯 Exactitud",
+};
 const REACTIONS = ["😂", "😭", "😊", "❤️", "😡", "👏", "🤔", "👀", "🤡"];
 const VOICES = ["", "listen", "fem", "masc", "neutral"];
 const RTC_MAX_BYTES = 20_000; // una oferta SDP de audio pesa ~3-6 KB
@@ -129,8 +148,23 @@ export class GameRoom extends Room<GameState> {
   private sfuPeers = new Map<string, SfuPeer>();
   // Voz en partida: las pistas se etiquetan por CUERPO. Al cambiar el reparto cambia la época y se re-suscribe todo.
   private bodyEpoch = 0;
-  private callTarget = new Map<string, string>(); // 🌙 mente -> mente con la que está en llamada (o llamando)
+  private callTarget = new Map<string, string>(); // 📻 mente -> mente con la que está en llamada (o llamando)
+  private callPairs = new Set<string>(); // 📻 pares que ya hablaron por radio en esta fase ("a|b" ordenado)
+  private callSince = new Map<string, number>(); // 📻 llamadas en curso (los dos conectados) -> desde cuándo
   private lastCalls = new Map<string, string>(); // lo último que se le mandó a cada uno en "callState"
+  // 📜 Detalles de la ronda (para los resultados)
+  private nightLog = new Map<number, Map<string, NightEdge>>(); // ciclo -> par de mentes -> actividad
+  private threadLog: RoundDetails["threads"] = [];
+  private voteLog: RoundDetails["votes"] = [];
+  private authorMind = new Map<string, string>(); // post/respuesta -> mente que lo escribió
+  private chatCount = new Map<string, number>();
+  // 🎯 Exactitud y 🧩 ¿Quién es quién? (también en Inmutables): se hacen una sola vez por ronda
+  private ratings = new Map<string, Record<string, number>>();
+  private exactScores: ExactScore[] | null = null;
+  private guessBlock: GuessBlock | null = null;
+  private guessed = false;
+  private rated = false;
+  private questionCycle = 0;
 
   onCreate(opts: { mode?: string }) {
     this.roomId = newCode();
@@ -145,17 +179,18 @@ export class GameRoom extends Room<GameState> {
     this.onMessage("chat", (client, { text, quote }: { text: string; quote?: string }) => {
       const t = clean(text);
       const ph = this.state.phase;
-      if (!t || !["LOBBY", "DAY", "RESULTS"].includes(ph)) return;
+      const real = ph === "LOBBY" || ph === "RESULTS"; // en partida se habla como el cuerpo
+      if (!t || (!real && !this.textNow())) return;
       const me = this.pid(client);
-      if (ph === "DAY" && !this.isActive(me)) return; // espectadores solo leen
-      const real = ph !== "DAY"; // fuera del día se habla con la identidad real
+      if (!real && !this.isActive(me)) return; // espectadores solo leen
       const fromBody = real ? me : this.bodyOf.get(me) ?? me;
-      const cyc = this.state.totalCycles > 1 ? ` · ciclo ${this.state.cycle}` : "";
-      const tag = ph === "DAY" ? `☀️ Chat global${cyc}` : ph === "RESULTS" ? "🏆 Resultados" : "🛋️ Sala de espera";
+      const cyc = this.state.totalCycles > 1 && ph !== "EXACT" ? ` · ciclo ${this.state.cycle}` : "";
+      const tag = ph === "RESULTS" ? "🏆 Resultados" : ph === "LOBBY" ? "🛋️ Sala de espera" : `${CHAT_TAGS[ph] ?? ph}${cyc}`;
       const msg: ChatMsg = { fromBody, real, tag, text: t, ts: Date.now() };
       // Citar un cotorreo del hilo (solo de día). Se guarda una copia por si el hilo cambia en otro ciclo.
       const q = ph === "DAY" && typeof quote === "string" ? this.state.posts.find((p) => p.id === quote) : undefined;
       if (q) msg.quote = { id: q.id, body: q.body, text: q.text };
+      if (!real) this.chatCount.set(me, (this.chatCount.get(me) ?? 0) + 1);
       this.chatLog.push(msg);
       if (this.chatLog.length > MAX_CHAT_LOG) this.chatLog.shift();
       this.broadcast("chat", msg);
@@ -177,6 +212,7 @@ export class GameRoom extends Room<GameState> {
       const r = new Reply();
       r.id = `r${++this.seq}`;
       r.body = this.bodyOf.get(me) ?? me;
+      this.authorMind.set(r.id, me);
       r.text = t;
       post.replies.push(r);
     });
@@ -204,7 +240,7 @@ export class GameRoom extends Room<GameState> {
       target.sus = set.size;
     });
 
-    // "Escribiendo…": de día y en el hilo se avisa a todos (por cuerpo); de noche solo a la otra punta del chat.
+    // "Escribiendo…": en el hilo y en los chats grupales se avisa a todos (por cuerpo); de noche solo a la otra punta.
     this.onMessage("typing", (client, msg: { toBody?: string }) => {
       const me = this.pid(client);
       const ph = this.state.phase;
@@ -212,7 +248,7 @@ export class GameRoom extends Room<GameState> {
       if (!this.isActive(me) || now - (this.lastTyping.get(me) ?? 0) < 800) return;
       this.lastTyping.set(me, now);
       const body = this.bodyOf.get(me) ?? me;
-      if (ph === "DAY" || ph === "THREAD") return this.broadcast("typing", { body }, { except: client });
+      if (ph === "THREAD" || (ph !== "NIGHT" && this.textNow())) return this.broadcast("typing", { body }, { except: client });
       if (ph !== "NIGHT" || typeof msg?.toBody !== "string") return;
       const target = this.mindInBody(msg.toBody);
       // Solo en conversaciones ya abiertas: no se avisa de un chat que quizá nunca empiece.
@@ -231,7 +267,7 @@ export class GameRoom extends Room<GameState> {
 
     this.onMessage("dm", (client, { toBody, text }: { toBody: string; text: string }) => {
       const t = clean(text);
-      if (!t || this.state.phase !== "NIGHT") return;
+      if (!t || this.state.phase !== "NIGHT" || !this.textNow()) return;
       const me = this.pid(client);
       if (!this.isActive(me)) return;
       const myBody = this.bodyOf.get(me)!;
@@ -250,25 +286,19 @@ export class GameRoom extends Room<GameState> {
       }
       const ts = Date.now();
       this.dmLog.push({ a: me, b: target, fromBody: myBody, text: t, ts });
+      this.logNight(me, target, (e) => e.dms++);
       client.send("dm", { fromBody: myBody, text: t, ts, withBody: toBody });
       this.clientOf(target)?.send("dm", { fromBody: myBody, text: t, ts, withBody: myBody });
       this.sendChatGraph();
     });
 
-    // 🌙📞 Chat privado por voz: llamar a un cuerpo. Llamadas ilimitadas, pero una a la vez: llamar a otro cuelga la
+    // 📻 Llamada de radio: llamar a un cuerpo. Llamadas ilimitadas, pero una a la vez: llamar a otro cuelga la
     // anterior. Solo se oyen si los dos se eligieron (el otro contesta llamándote de vuelta, o rechaza).
     this.onMessage("call", (client, { toBody }: { toBody?: string }) => {
       const me = this.pid(client);
-      if (this.state.phase !== "NIGHT" || !this.voiceInGame() || !this.isActive(me) || typeof toBody !== "string") return;
+      if (!this.callsNow() || !this.isActive(me) || typeof toBody !== "string") return;
       const target = this.mindInBody(toBody);
       if (!target || target === me || !this.isActive(target)) return;
-      const key = [me, target].sort().join("|");
-      if (!this.dmPairs.has(key)) {
-        this.dmPairs.add(key);
-        // Para el grafo de los espectadores: la llamada cuenta como un mensaje (sin contenido).
-        this.dmLog.push({ a: me, b: target, fromBody: this.bodyOf.get(me)!, text: "📞", ts: Date.now() });
-        this.sendChatGraph();
-      }
       this.callTarget.set(me, target);
       this.pushAudible();
     });
@@ -276,7 +306,7 @@ export class GameRoom extends Room<GameState> {
     this.onMessage("decline", (client, { fromBody }: { fromBody?: string }) => {
       const me = this.pid(client);
       const caller = typeof fromBody === "string" ? this.mindInBody(fromBody) : undefined;
-      if (this.state.phase !== "NIGHT" || !caller || this.callTarget.get(caller) !== me) return;
+      if (!this.callsNow() || !caller || this.callTarget.get(caller) !== me) return;
       this.callTarget.delete(caller);
       this.clientOf(caller)?.send("callDeclined", { byBody: this.bodyOf.get(me) });
       this.pushAudible();
@@ -316,6 +346,27 @@ export class GameRoom extends Room<GameState> {
       if (typeof body !== "string" || !this.isBodyActive(body) || body === this.bodyOf.get(me)) return;
       this.votes.set(me, body);
       this.markSubmitted(me);
+    });
+
+    // 🎯 Exactitud: estrellas (1–5) a cómo imitaron a cada cuerpo. Califican todos, también los espectadores,
+    // menos el cuerpo en el que estás (sería calificarte a ti).
+    this.onMessage("rate", (client, msg: { ratings?: Record<string, unknown> }) => {
+      const me = this.pid(client);
+      if (this.state.phase !== "EXACT" || !this.state.players.has(me) || !msg?.ratings || typeof msg.ratings !== "object") return;
+      const clean: Record<string, number> = {};
+      for (const [body, v] of Object.entries(msg.ratings)) {
+        const stars = Math.round(Number(v));
+        if (this.state.players.has(body) && body !== this.bodyOf.get(me) && stars >= 1 && stars <= 5) clean[body] = stars;
+      }
+      this.ratings.set(me, clean);
+      this.markSubmitted(me);
+    });
+
+    // 👑 El host le pasa la corona a otro jugador conectado.
+    this.onMessage("giveHost", (client, { to }: { to?: string }) => {
+      if (!this.isHost(client) || typeof to !== "string" || to === this.state.hostId || !this.state.players.get(to)?.connected) return;
+      this.state.hostId = to;
+      this.broadcast("hostChanged", { id: to });
     });
 
     // Reacciones en vivo sobre tarjetas (no cuentan como voto).
@@ -375,6 +426,7 @@ export class GameRoom extends Room<GameState> {
     this.onMessage("settings", (client, patch: Partial<Record<keyof Settings, number | string | boolean>>) => {
       if (!this.isHost(client) || this.state.phase !== "LOBBY" || !patch || typeof patch !== "object") return;
       const s = this.state.settings;
+      const bool = (k: keyof Settings) => typeof patch[k] === "boolean";
       if (typeof patch.mode === "string" && patch.mode in MODES) this.setMode(patch.mode as Mode);
       if ("cycles" in patch) s.cycles = clamp(patch.cycles, 0, 5, s.cycles);
       // 0 apaga la fase (menos la votación final)
@@ -388,8 +440,19 @@ export class GameRoom extends Room<GameState> {
       if ("maxEjections" in patch) s.maxEjections = clamp(patch.maxEjections, 0, MAX_PLAYERS, s.maxEjections);
       if (typeof patch.earlyVote === "boolean") s.earlyVote = patch.earlyVote;
       if (typeof patch.unmaskSame === "boolean") s.unmaskSame = patch.unmaskSame && s.mode === "classic";
-      if ("voiceWalkie" in patch) s.voiceWalkie = clamp(patch.voiceWalkie, 0, 2, s.voiceWalkie);
-      if (typeof patch.voicePhases === "boolean") s.voicePhases = patch.voicePhases && sfuEnabled();
+      if ("voiceWalkie" in patch) s.voiceWalkie = clamp(patch.voiceWalkie, 0, 3, s.voiceWalkie);
+      if (bool("voicePhases")) s.voicePhases = !!patch.voicePhases && sfuEnabled();
+      if (bool("voiceText")) s.voiceText = !!patch.voiceText;
+      if (typeof patch.nightMode === "string" && ["radio", "chat", "both"].includes(patch.nightMode)) s.nightMode = patch.nightMode as NightMode;
+      if (bool("splitRadio")) s.splitRadio = !!patch.splitRadio;
+      if ("radioSeconds" in patch) s.radioSeconds = clamp(patch.radioSeconds, 15, 600, s.radioSeconds);
+      if (bool("voteChat")) s.voteChat = !!patch.voteChat;
+      if (bool("voteVoice")) s.voteVoice = !!patch.voteVoice;
+      if (bool("immGuess")) s.immGuess = !!patch.immGuess && isImmutableMode(s.mode);
+      if (bool("exactPhase")) s.exactPhase = !!patch.exactPhase;
+      if (bool("exactChat")) s.exactChat = !!patch.exactChat;
+      if ("exactSeconds" in patch) s.exactSeconds = clamp(patch.exactSeconds, 20, 180, s.exactSeconds);
+      if ("music" in patch) s.music = clamp(patch.music, 0, 3, s.music);
     });
 
     this.onMessage("start", (client) => {
@@ -540,6 +603,8 @@ export class GameRoom extends Room<GameState> {
     s.voteSeconds = isImmutableMode(mode) ? 45 : 30;
     s.maxEjections = isImmutableMode(mode) ? 0 : 1;
     if (mode !== "classic") s.unmaskSame = false;
+    // En El No Cambiante los cambiantes cambian una sola vez: adivinar quién es quién tiene más sentido.
+    s.immGuess = mode === "still";
   }
 
   private startRound() {
@@ -556,6 +621,16 @@ export class GameRoom extends Room<GameState> {
     this.hiddenOut.clear();
     this.verdict = null;
     this.winner = null;
+    this.nightLog.clear();
+    this.threadLog = [];
+    this.voteLog = [];
+    this.authorMind.clear();
+    this.chatCount.clear();
+    this.ratings.clear();
+    this.exactScores = null;
+    this.guessBlock = null;
+    this.guessed = false;
+    this.rated = false;
     this.state.posts.clear();
     this.state.question = "";
     for (const p of this.state.players.values()) {
@@ -588,12 +663,15 @@ export class GameRoom extends Room<GameState> {
     }
     if (s.daySeconds > 0) list.push("DAY");
     if (s.nightSeconds > 0) list.push("NIGHT");
+    if (hasRadioPhase(s, sfuEnabled()) && s.radioSeconds > 0) list.push("RADIO");
     return list;
   }
 
   /**
-   * 🧳 → [❓ → 🦜 → ☀️ → 🌙 → (votación entre ciclos) → (re-cambio en El Inmutable)] × ciclos → votación final → 🏆
+   * 🧳 → [❓ → 🦜 → ☀️ → 🌙 → (📻) → (votación entre ciclos) → (re-cambio en El Inmutable)] × ciclos
+   *   → votación final → (🎯 Exactitud) → 🏆
    * La votación entre ciclos no ocurre en el último ciclo: a ese le sigue la votación final.
+   * En los Inmutables, con 🧩 activo, antes del ⚖️ Juicio Final se adivina quién es quién.
    */
   private advance() {
     const ph = this.state.phase;
@@ -601,6 +679,11 @@ export class GameRoom extends Room<GameState> {
       this.state.thread++;
       this.setPhase("THREAD", this.state.settings.threadSeconds);
       return;
+    }
+    // 📻 Se cortan las llamadas antes de que cambie el ciclo (o el reparto): su duración queda en esta noche.
+    if (PRIVATE_PHASES.includes(ph)) {
+      this.callTarget.clear();
+      this.trackCalls();
     }
     switch (ph) {
       case "SWAP":
@@ -613,11 +696,19 @@ export class GameRoom extends Room<GameState> {
       case "FINAL_VOTE":
         return this.showVerdict(this.resolveVotePhase(true));
       case "VERDICT":
-        if (this.winner || this.verdict?.kind === "FINAL_VOTE") return this.finishImmutable();
+        if (this.winner || this.verdict?.kind === "FINAL_VOTE") return this.afterFinal();
         return this.nextCycle();
       case "GUESS":
-        this.computeResults();
-        return this.setPhase("RESULTS", 0);
+        this.guessBlock = this.scoreGuesses();
+        this.guessed = true;
+        // Inmutables: después de adivinar viene el Juicio Final (salvo que la partida ya haya terminado).
+        if (isImmutableMode(this.state.settings.mode) && !this.winner) return this.startFinalVote();
+        return this.afterFinal();
+      case "EXACT":
+        this.exactScores = scoreExact(this.ratings, this.occupants());
+        for (const e of this.exactScores) this.addPts(e.mindId, e.points, false);
+        this.rated = true;
+        return this.afterFinal();
       case "LOBBY":
       case "RESULTS":
         return;
@@ -633,6 +724,8 @@ export class GameRoom extends Room<GameState> {
     const s = this.state.settings;
     switch (list[i]) {
       case "QUESTION": {
+        this.snapshotThread();
+        this.questionCycle = this.state.cycle;
         this.answers.clear();
         this.likedBy.clear();
         this.susBy.clear();
@@ -649,6 +742,7 @@ export class GameRoom extends Room<GameState> {
           post.id = `p${++this.seq}`;
           post.body = this.bodyOf.get(mind) ?? mind;
           post.text = text;
+          this.authorMind.set(post.id, mind);
           this.state.posts.push(post);
         }
         this.state.thread = 0;
@@ -658,6 +752,11 @@ export class GameRoom extends Room<GameState> {
         return this.setPhase("DAY", s.daySeconds);
       case "NIGHT":
         return this.startNight(s.nightSeconds);
+      case "RADIO":
+        this.callTarget.clear();
+        this.callPairs.clear();
+        if (!this.nightLog.has(this.state.cycle)) this.nightLog.set(this.state.cycle, new Map());
+        return this.setPhase("RADIO", s.radioSeconds);
     }
   }
 
@@ -686,13 +785,34 @@ export class GameRoom extends Room<GameState> {
   }
 
   private enterFinal() {
-    this.resetSubmitted();
     const s = this.state.settings;
-    if (isImmutableMode(s.mode)) {
-      this.votes.clear();
-      return this.setPhase("FINAL_VOTE", s.guessSeconds);
+    if (isImmutableMode(s.mode) && !s.immGuess) return this.startFinalVote();
+    this.startGuess();
+  }
+
+  private startGuess() {
+    this.resetSubmitted();
+    this.setPhase("GUESS", this.state.settings.guessSeconds);
+  }
+
+  private startFinalVote() {
+    this.resetSubmitted();
+    this.votes.clear();
+    this.setPhase("FINAL_VOTE", this.state.settings.guessSeconds);
+  }
+
+  /** La votación final ya se resolvió (o la partida terminó antes): lo que falte de 🧩 y 🎯, y a los resultados. */
+  private afterFinal() {
+    const s = this.state.settings;
+    const imm = isImmutableMode(s.mode);
+    if (imm && s.immGuess && !this.guessed) return this.startGuess();
+    if (s.exactPhase && !this.rated) {
+      this.resetSubmitted();
+      this.ratings.clear();
+      return this.setPhase("EXACT", s.exactSeconds);
     }
-    this.setPhase("GUESS", s.guessSeconds);
+    if (imm) return this.finishImmutable();
+    this.finishGuess();
   }
 
   private ejectionsLeft() {
@@ -709,6 +829,7 @@ export class GameRoom extends Room<GameState> {
   // ---------------- votaciones ----------------
 
   private resolveUnmaskPhase(): Verdict {
+    this.logBallots("UNMASK");
     const truth: Record<string, string> = {};
     for (const [m, b] of this.bodyOf) if (this.isActive(m)) truth[b] = m;
     const r = resolveUnmask({
@@ -724,6 +845,7 @@ export class GameRoom extends Room<GameState> {
 
   private resolveVotePhase(final: boolean): Verdict {
     const kind = final ? "FINAL_VOTE" : "VOTE";
+    this.logBallots(kind);
     const { top, reason, tally } = resolvePlurality(this.votes);
     if (!top) {
       if (final) this.winImmutable();
@@ -784,22 +906,14 @@ export class GameRoom extends Room<GameState> {
     this.hiddenOut.clear();
   }
 
-  /** Espectadores: quién chatea con quién esta noche (por cuerpo), sin el contenido. Solo a espectadores. */
+  /** Espectadores: quién habla con quién esta noche (por cuerpo; mensajes + 📻 llamadas), sin el contenido. */
   private chatGraph() {
-    const edges = new Map<string, { a: string; b: string; count: number; last: number }>();
-    for (const d of this.dmLog) {
-      const a = this.bodyOf.get(d.a)!;
-      const b = this.bodyOf.get(d.b)!;
-      const key = [a, b].sort().join("|");
-      const e = edges.get(key) ?? { a: [a, b].sort()[0], b: [a, b].sort()[1], count: 0, last: 0 };
-      e.count++;
-      e.last = Math.max(e.last, d.ts);
-      edges.set(key, e);
-    }
-    return [...edges.values()];
+    const night = this.nightLog.get(this.state.cycle);
+    return [...(night?.values() ?? [])].map((e) => ({ a: e.aBody, b: e.bBody, count: e.dms + e.calls, last: e.last }));
   }
 
   private sendChatGraph() {
+    if (!PRIVATE_PHASES.includes(this.state.phase)) return;
     const graph = this.chatGraph();
     for (const [pid, c] of this.clientOfPid) if (!this.isActive(pid)) c.send("chatGraph", graph);
   }
@@ -839,20 +953,22 @@ export class GameRoom extends Room<GameState> {
 
   private startNight(seconds: number) {
     this.callTarget.clear();
+    this.callPairs.clear();
     this.dmPairs.clear();
     this.initiated.clear();
     this.dmLog = [];
-    this.sendChatGraph();
     const s = this.state.settings;
     this.state.chatLimit = s.chatsPerNight > 0 ? s.chatsPerNight : autoChats(this.activeIds().length);
+    if (!this.nightLog.has(this.state.cycle)) this.nightLog.set(this.state.cycle, new Map()); // 📜 aunque nadie hable
     this.setPhase("NIGHT", seconds);
+    this.sendChatGraph();
   }
 
   private setPhase(phase: Phase, seconds: number) {
     const changed = this.state.phase !== phase;
     // Sin voz en partida, al salir del lobby la voz se apaga: cada cliente cierra sus conexiones y el server olvida las sesiones.
     if (changed && this.state.phase === "LOBBY" && !this.voiceInGame()) for (const id of [...this.sfuPeers.keys()]) this.sfuDrop(id);
-    if (changed && phase !== "NIGHT") this.callTarget.clear();
+    if (changed && !PRIVATE_PHASES.includes(phase)) this.callTarget.clear();
     this.state.phase = phase;
     this.state.timer = seconds;
     for (const p of this.state.players.values()) p.skipVote = false;
@@ -883,7 +999,8 @@ export class GameRoom extends Room<GameState> {
   /** Si todos los activos conectados ya respondieron / votaron, se avanza sin esperar el reloj. */
   private checkAllSubmitted() {
     if (!SUBMIT_PHASES.includes(this.state.phase)) return;
-    const pending = [...this.state.players.values()].some((p) => p.connected && this.isActive(p.id) && !p.submitted);
+    const everyone = this.state.phase === "EXACT"; // en 🎯 Exactitud califican también los espectadores
+    const pending = [...this.state.players.values()].some((p) => p.connected && (everyone || this.isActive(p.id)) && !p.submitted);
     if (!pending) this.advance();
   }
 
@@ -957,8 +1074,11 @@ export class GameRoom extends Room<GameState> {
 
   // ---------------- resultados ----------------
 
-  /** ¿Quién es quién? (Clásico / Todos): se puntúa sobre los cuerpos y mentes que siguen en juego. */
-  private computeResults() {
+  /**
+   * 🧩 ¿Quién es quién?: se puntúa sobre los cuerpos y mentes que siguen en juego. Suma los puntos al momento
+   * (en los Inmutables quedan guardados hasta el final, como el resto).
+   */
+  private scoreGuesses(): GuessBlock {
     const minds = [...this.bodyOf.keys()];
     const active = minds.filter((m) => this.isActive(m));
     const rivals = active.length - 1;
@@ -983,7 +1103,7 @@ export class GameRoom extends Room<GameState> {
       const swapped = myBody !== m;
       const early = this.earlyPts.get(m) ?? 0;
       if (!this.isActive(m)) {
-        return { mindId: m, bodyId: myBody, swapped, out: true, hits: 0, sameHits: 0, guessedBy: 0, fooled: 0, bonus: null, early, points: early };
+        return { mindId: m, bodyId: myBody, swapped, out: true, hits: 0, sameHits: 0, guessedBy: 0, fooled: 0, bonus: null, early, exact: 0, points: early };
       }
       let hits = 0;
       let sameHits = 0;
@@ -1000,11 +1120,23 @@ export class GameRoom extends Room<GameState> {
         : (rivals > 0 && fooled >= rivals * 0.5 ? "decoy" : null);
       const final = hits * POINTS.guessSwap + sameHits * POINTS.guessSame + (bonus ? POINTS.bonus : 0);
       this.addPts(m, final, false);
-      return { mindId: m, bodyId: myBody, swapped, out: false, hits, sameHits, guessedBy, fooled, bonus, early, points: early + final };
+      return { mindId: m, bodyId: myBody, swapped, out: false, hits, sameHits, guessedBy, fooled, bonus, early, exact: 0, points: early + final };
     });
+    return { results, guesses: norm };
+  }
+
+  /** Clásico / Todos: resultados de ¿Quién es quién? (+ 🎯 Exactitud si estuvo). */
+  private finishGuess() {
+    const block = this.guessBlock ?? this.scoreGuesses();
+    const exact = new Map((this.exactScores ?? []).map((e) => [e.mindId, e.points]));
+    const results = block.results.map((r) => ({ ...r, exact: exact.get(r.mindId) ?? 0, points: r.points + (exact.get(r.mindId) ?? 0) }));
     for (const p of this.state.players.values()) p.lastPoints = this.roundPts.get(p.id) ?? 0;
-    this.lastResults = { family: "guess", mode: this.state.settings.mode, results, guesses: norm, ejections: this.ejections };
+    this.lastResults = {
+      family: "guess", mode: this.state.settings.mode, results, guesses: block.guesses, ejections: this.ejections,
+      exact: this.exactScores, details: this.details(),
+    };
     this.broadcast("results", this.lastResults);
+    this.setPhase("RESULTS", 0);
   }
 
   private finishImmutable() {
@@ -1023,9 +1155,66 @@ export class GameRoom extends Room<GameState> {
       history: Object.fromEntries(this.history),
       ejections: this.ejections,
       points: Object.fromEntries([...this.state.players.keys()].map((id) => [id, this.roundPts.get(id) ?? 0])),
+      guess: this.guessBlock,
+      exact: this.exactScores,
+      details: this.details(),
     };
     this.broadcast("results", this.lastResults);
     this.setPhase("RESULTS", 0);
+  }
+
+  /** Cuerpo -> mente que tiene adentro ahora. */
+  private occupants() {
+    return Object.fromEntries([...this.bodyOf].map(([m, b]) => [b, m]));
+  }
+
+  // ---------------- 📜 detalles de la ronda ----------------
+
+  /** Suma actividad privada (mensajes, llamadas) entre dos mentes en el ciclo actual. */
+  private logNight(a: string, b: string, fn: (e: NightEdge) => void) {
+    let night = this.nightLog.get(this.state.cycle);
+    if (!night) this.nightLog.set(this.state.cycle, (night = new Map()));
+    const [x, y] = [a, b].sort();
+    const key = `${x}|${y}`;
+    let e = night.get(key);
+    if (!e) {
+      e = { aMind: x, bMind: y, aBody: this.bodyOf.get(x) ?? x, bBody: this.bodyOf.get(y) ?? y, dms: 0, calls: 0, callSec: 0, last: 0 };
+      night.set(key, e);
+    }
+    fn(e);
+    e.last = Date.now();
+    this.sendChatGraph();
+  }
+
+  /** Guarda el hilo de Cotorra del ciclo (con quién escribió qué de verdad) antes de que se borre. */
+  private snapshotThread() {
+    if (this.state.posts.length === 0) return;
+    const entry = (p: Post | Reply) => ({ id: p.id, body: p.body, mind: this.authorMind.get(p.id) ?? p.body, text: p.text, likes: p.likes, sus: p.sus });
+    this.threadLog.push({
+      cycle: this.questionCycle,
+      question: this.state.question,
+      posts: this.state.posts.map((p) => ({ ...entry(p), replies: p.replies.map(entry) })),
+    });
+  }
+
+  /** Quién votó qué (se revela al final). */
+  private logBallots(kind: Ejection["kind"]) {
+    const ballots = kind === "UNMASK"
+      ? [...this.accusations].map(([v, a]) => ({ voter: v, voterBody: this.bodyOf.get(v) ?? v, body: a?.body ?? null, mind: a?.mind }))
+      : [...this.votes].map(([v, b]) => ({ voter: v, voterBody: this.bodyOf.get(v) ?? v, body: b }));
+    this.voteLog.push({ cycle: this.state.cycle, kind, ballots });
+  }
+
+  private details(): RoundDetails {
+    this.snapshotThread();
+    this.state.posts.clear(); // ya quedó guardado: que no se guarde dos veces
+    return {
+      nights: [...this.nightLog].map(([cycle, edges]) => ({ cycle, edges: [...edges.values()] })),
+      threads: this.threadLog,
+      votes: this.voteLog,
+      chat: Object.fromEntries(this.chatCount),
+      history: Object.fromEntries(this.history),
+    };
   }
 
   private backToLobby() {
@@ -1138,6 +1327,18 @@ export class GameRoom extends Room<GameState> {
     return this.state.settings.voicePhases && sfuEnabled();
   }
 
+  /** Chat escrito y voz de la fase actual (en partida). */
+  private channels() {
+    return channels(this.state.settings, this.state.phase, sfuEnabled());
+  }
+  private textNow() {
+    return this.channels().text;
+  }
+  /** 📻 Llamadas de radio: de noche (juntas con el chat o solas) o en su propia fase. */
+  private callsNow() {
+    return PRIVATE_PHASES.includes(this.state.phase) && this.channels().voice;
+  }
+
   /** En partida las voces se nombran por cuerpo; en el lobby y en resultados, por la persona. */
   private voiceByBody() {
     return !["LOBBY", "RESULTS"].includes(this.state.phase);
@@ -1160,16 +1361,16 @@ export class GameRoom extends Room<GameState> {
     const ready = [...this.sfuPeers.entries()].filter(([id, p]) => id !== me && p.ready && p.pub).map(([id]) => id);
     let minds: string[] = [];
     if (ph === "LOBBY" || ph === "RESULTS") minds = ready;
-    else if (this.voiceInGame() && ph === "DAY") minds = ready.filter((m) => this.isActive(m));
-    else if (this.voiceInGame() && ph === "NIGHT" && this.isActive(me)) {
+    else if (this.callsNow()) {
       const t = this.callTarget.get(me);
-      minds = ready.filter((m) => m === t && this.callTarget.get(m) === me && this.isActive(m));
-    }
+      if (this.isActive(me)) minds = ready.filter((m) => m === t && this.callTarget.get(m) === me && this.isActive(m));
+    } else if (!PRIVATE_PHASES.includes(ph) && this.channels().voice) minds = ready.filter((m) => this.isActive(m));
     return { bodies: minds.map((m) => this.voiceLabel(m)), epoch };
   }
 
   /** Manda a cada uno qué voces tiene que oír (solo si cambió), y el estado de las llamadas de la noche. */
   private pushAudible() {
+    this.trackCalls();
     for (const [pid, peer] of this.sfuPeers) {
       const c = this.clientOf(pid);
       if (!c || !peer.sub) continue;
@@ -1182,16 +1383,39 @@ export class GameRoom extends Room<GameState> {
     this.pushCalls();
   }
 
-  /** 🌙 Llamadas: a quién llamas, quién te llama y con quién ya hablaste (cuerpos). */
+  /**
+   * 📻 Llamadas conectadas (los dos se eligieron): cuentan para el grafo y los detalles, con su duración.
+   * Se llama en cada cambio de llamadas y de fase (al salir de la noche se cierran todas).
+   */
+  private trackCalls() {
+    const now = Date.now();
+    const live = new Set<string>();
+    for (const [a, b] of this.callTarget) if (a < b && this.callTarget.get(b) === a) live.add(`${a}|${b}`);
+    for (const k of live) {
+      if (this.callSince.has(k)) continue;
+      this.callSince.set(k, now);
+      this.callPairs.add(k);
+      const [a, b] = k.split("|");
+      this.logNight(a, b, (e) => e.calls++);
+    }
+    for (const [k, since] of this.callSince) {
+      if (live.has(k)) continue;
+      this.callSince.delete(k);
+      const [a, b] = k.split("|");
+      this.logNight(a, b, (e) => (e.callSec += Math.round((now - since) / 1000)));
+    }
+  }
+
+  /** 📻 Llamadas: a quién llamas, quién te llama y con quién ya hablaste (cuerpos). */
   private pushCalls() {
     for (const [pid, c] of this.clientOfPid) {
       let st = { target: "", incoming: [] as string[], pairs: [] as string[] };
-      if (this.state.phase === "NIGHT" && this.voiceInGame() && this.isActive(pid)) {
+      if (this.callsNow() && this.isActive(pid)) {
         const t = this.callTarget.get(pid);
         st = {
           target: t ? this.bodyOf.get(t) ?? "" : "",
           incoming: [...this.callTarget].filter(([m, to]) => to === pid && t !== m).map(([m]) => this.bodyOf.get(m) ?? ""),
-          pairs: [...this.dmPairs].map((k) => k.split("|")).filter((ab) => ab.includes(pid)).map(([a, b]) => this.bodyOf.get(a === pid ? b : a) ?? ""),
+          pairs: [...this.callPairs].map((k) => k.split("|")).filter((ab) => ab.includes(pid)).map(([a, b]) => this.bodyOf.get(a === pid ? b : a) ?? ""),
         };
       }
       const key = JSON.stringify(st);
@@ -1246,6 +1470,7 @@ export class GameRoom extends Room<GameState> {
     const spectator = ph !== "LOBBY" && !!this.state.players.get(id) && !this.isActive(id);
     client.send("identity", { mindId: id, bodyId: this.bodyOf.get(id) ?? id, role, spectator });
     client.send("chatHistory", this.chatLog);
+    if (ph === "EXACT") client.send("myRatings", this.ratings.get(id) ?? {});
     if (ph === "NIGHT") {
       client.send("quota", { used: this.initiated.get(id) ?? 0 });
       const mine = this.dmLog
@@ -1253,9 +1478,9 @@ export class GameRoom extends Room<GameState> {
         .map((d) => ({ fromBody: d.fromBody, text: d.text, ts: d.ts, withBody: this.bodyOf.get(d.a === id ? d.b : d.a)! }));
       client.send("dmHistory", mine);
     }
-    if (ph === "NIGHT" && spectator) client.send("chatGraph", this.chatGraph());
+    if (PRIVATE_PHASES.includes(ph) && spectator) client.send("chatGraph", this.chatGraph());
     if (ph === "VERDICT" && this.verdict) client.send("verdict", this.verdict);
-    if (ph === "NIGHT") this.pushCalls();
+    if (PRIVATE_PHASES.includes(ph)) this.pushCalls();
     if (ph === "RESULTS" && this.lastResults) client.send("results", this.lastResults);
   }
 

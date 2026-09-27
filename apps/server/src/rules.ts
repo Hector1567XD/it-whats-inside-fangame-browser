@@ -1,5 +1,5 @@
 // Reglas puras del juego (sin estado de sala): modos, mínimos, ciclos automáticos, puntos y resolución de votos.
-import type { Mode } from "./GameState.js";
+import type { Mode, NightMode, Phase } from "./GameState.js";
 
 export const MODES: Record<Mode, { min: number; env: string }> = {
   classic: { min: 5, env: "MIN_PLAYERS_CLASSIC" },
@@ -64,7 +64,72 @@ export const POINTS = {
   immutableEjects: 100, // el Inmutable, por cada cambiante expulsado
   immutableSurvives: 100, // el Inmutable, por cada votación entre ciclos que sobrevive
   immutableWins: 500,
+  // 🎯 Exactitud: el imitador gana estrellas promedio × esto (máx. 5 ★ = 200)
+  exactStar: 40,
 };
+
+/** 🎯 Exactitud: el voto del dueño del cuerpo vale 2×; el del resto, 0,5×. */
+export const EXACT_WEIGHT = { owner: 2, other: 0.5 };
+
+type ChannelSettings = {
+  voicePhases: boolean; voiceText: boolean; nightMode: NightMode; splitRadio: boolean;
+  voteChat: boolean; voteVoice: boolean; exactChat: boolean;
+};
+export const VOTE_PHASES: Phase[] = ["UNMASK", "VOTE", "FINAL_VOTE", "GUESS"];
+
+/**
+ * Qué chat hay en cada fase de la partida: `text` (chat escrito) y `voice` (sala de voz, o 📻 Llamada de radio
+ * de noche). La voz necesita el SFU. Lobby y resultados no pasan por aquí (siempre hay de todo).
+ */
+export function channels(s: ChannelSettings, phase: Phase, sfu: boolean) {
+  const voice = s.voicePhases && sfu;
+  switch (phase) {
+    case "DAY":
+      return { text: !voice || s.voiceText, voice };
+    case "NIGHT": {
+      const mode = voice ? s.nightMode : "chat";
+      return { text: mode !== "radio", voice: mode === "radio" || (mode === "both" && !s.splitRadio) };
+    }
+    case "RADIO":
+      return { text: false, voice };
+    case "EXACT":
+      return { text: s.exactChat, voice: voice && s.exactChat && s.voteVoice };
+    default:
+      if (VOTE_PHASES.includes(phase)) return { text: s.voteChat, voice: voice && s.voteChat && s.voteVoice };
+      return { text: false, voice: false };
+  }
+}
+
+/** Con voz y "ambos" separados, después del 🌙 chat privado viene su propia fase de 📻 Llamada de radio. */
+export const hasRadioPhase = (s: ChannelSettings, sfu: boolean) =>
+  s.voicePhases && sfu && s.nightMode === "both" && s.splitRadio;
+
+export type ExactScore = { bodyId: string; mindId: string; avg: number; votes: number; owner: number | null; points: number };
+
+/**
+ * 🎯 Exactitud: promedio ponderado de estrellas (1–5) de cada cuerpo. Solo suma quien estaba en un cuerpo AJENO.
+ * `ratings`: quien califica -> { cuerpo: estrellas }. `occupant`: cuerpo -> mente que tenía adentro al final.
+ */
+export function scoreExact(ratings: Map<string, Record<string, number>>, occupant: Record<string, string>): ExactScore[] {
+  return Object.entries(occupant).map(([bodyId, mindId]) => {
+    let sum = 0;
+    let weight = 0;
+    let votes = 0;
+    let owner: number | null = null;
+    for (const [rater, r] of ratings) {
+      const stars = r[bodyId];
+      if (!stars || rater === mindId) continue; // nadie califica su propia imitación
+      const w = rater === bodyId ? EXACT_WEIGHT.owner : EXACT_WEIGHT.other;
+      if (rater === bodyId) owner = stars;
+      sum += w * stars;
+      weight += w;
+      votes++;
+    }
+    const avg = weight > 0 ? sum / weight : 0;
+    const points = mindId !== bodyId ? Math.round(avg * POINTS.exactStar) : 0;
+    return { bodyId, mindId, avg: Math.round(avg * 100) / 100, votes, owner, points };
+  });
+}
 
 export type Verdict = {
   kind: "UNMASK" | "VOTE" | "FINAL_VOTE";

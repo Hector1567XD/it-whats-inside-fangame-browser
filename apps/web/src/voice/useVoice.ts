@@ -52,6 +52,7 @@ export function useVoice(room: Room, s: StateView | null, me: { mindId: string; 
   const meshRef = useRef<VoiceTransport | null>(null);
   const [transport, setTransport] = useState<"sfu" | "p2p" | null>(null);
   const [problem, setProblem] = useState("");
+  const [attempt, setAttempt] = useState(0); // 🔄 reconectar a mano: rearma el transporte
   const idsRef = useRef<string[]>([]);
   const opening = useRef<Promise<VoiceChain> | null>(null);
   const lastEngine = useRef<EngineId | null>(null);
@@ -221,7 +222,7 @@ export function useVoice(room: Room, s: StateView | null, me: { mindId: string; 
       cancelled = true;
       dropMesh();
     };
-  }, [active, mode, myId]);
+  }, [active, mode, myId, attempt]);
 
   // Sin voz en esta sesión (o recién reconectado): que el server no nos anuncie como disponibles.
   useEffect(() => {
@@ -288,6 +289,18 @@ export function useVoice(room: Room, s: StateView | null, me: { mindId: string; 
       void ctxRef.current?.resume();
       meshRef.current?.unblock();
       setBlocked(false);
+    },
+    /** 🔄 Cierra y vuelve a abrir la conexión de voz (si no conectó, no oyes a nadie o no te oyen). */
+    reconnect: () => {
+      console.info("[voz] 🔄 reconectando a mano");
+      // Si la pista del micrófono murió (p. ej. otro programa lo tomó), se vuelve a pedir.
+      if (chainRef.current && chainRef.current.outputTrack?.readyState === "ended") {
+        chainRef.current.destroy();
+        chainRef.current = null;
+      }
+      void ctxRef.current?.resume();
+      setError("");
+      setAttempt((n) => n + 1);
     },
   };
 }

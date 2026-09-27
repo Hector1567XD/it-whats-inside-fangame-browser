@@ -1,0 +1,775 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MindSwap · Voz 7</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Nunito:wght@600;800&display=swap" rel="stylesheet" />
+<style>
+/* Experimento 7: normalizar la voz en vivo para que se distinga menos quién habla. No toca el juego. */
+:root { --line: rgba(255, 255, 255, 0.18); --muted: rgba(255, 255, 255, 0.72); --accent: #5ee37a; --yellow: #ffd23d; --red: #ff3d5a; --blue: #6cc8ff; --ink: #2a0d4d; }
+* { box-sizing: border-box; }
+html { background: #1a0838; }
+body { margin: 0; font-family: "Nunito", system-ui, sans-serif; color: #fff; background: linear-gradient(135deg, #1d0b4d, #3b1270 60%, #1a0838); background-attachment: fixed; min-height: 100vh; }
+h1, h2 { font-family: "Lilita One", sans-serif; font-weight: 400; letter-spacing: 0.5px; }
+button, select { font: inherit; }
+.page { max-width: 900px; margin: 0 auto; padding: 20px 16px 60px; display: flex; flex-direction: column; gap: 14px; }
+.hero h1 { margin: 0; font-size: clamp(30px, 5vw, 44px); text-shadow: 0 4px 0 var(--ink); transform: rotate(-1.5deg); }
+.hero h1 span { color: var(--yellow); }
+.hero p { margin: 6px 0 0; color: var(--muted); line-height: 1.45; }
+.banner { border-radius: 16px; padding: 10px 14px; font-weight: 800; font-size: 14px; line-height: 1.4; }
+.banner.warn { background: rgba(255, 210, 61, 0.16); border: 2px solid var(--yellow); }
+.banner.ok { background: rgba(94, 227, 122, 0.16); border: 2px solid var(--accent); }
+.banner.bad { background: rgba(255, 61, 90, 0.16); border: 2px solid var(--red); }
+.card { background: rgba(10, 8, 40, 0.55); border: 2px solid var(--line); border-radius: 20px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.card.off { opacity: 0.8; }
+.card.disabled { opacity: 0.5; }
+.card h2 { margin: 0; font-size: 22px; flex: 1; }
+.card h2 small { font-family: "Nunito"; font-size: 13px; color: var(--muted); font-weight: 800; }
+.head { display: flex; gap: 10px; align-items: center; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.btn { font-weight: 800; border: 3px solid #fff; border-radius: 14px; padding: 8px 14px; cursor: pointer; background: rgba(255, 255, 255, 0.1); color: #fff; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn.go { background: var(--accent); color: #103a1a; }
+.btn.on { background: var(--yellow); color: var(--ink); }
+.btn.rec { background: var(--red); animation: pulse 1s infinite; }
+.btn.stop { background: var(--red); }
+.btn.sm { padding: 5px 10px; font-size: 13px; border-width: 2px; }
+.tog { min-width: 120px; }
+@keyframes pulse { 50% { transform: scale(1.05); } }
+.check { display: flex; gap: 6px; align-items: center; font-weight: 800; font-size: 14px; cursor: pointer; }
+.sliders { display: grid; grid-template-columns: minmax(120px, auto) 1fr 70px; gap: 8px 12px; align-items: center; font-size: 14px; font-weight: 800; }
+.sliders input[type=range] { width: 100%; }
+.sliders b { text-align: right; color: var(--yellow); }
+.meters { display: grid; grid-template-columns: 110px 1fr 64px; gap: 6px 10px; align-items: center; font-size: 13px; font-weight: 800; }
+.meters b { text-align: right; color: var(--yellow); font-size: 12px; }
+.meter { height: 12px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.meter div { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--yellow), var(--red)); }
+.meter.score div { background: linear-gradient(90deg, var(--blue), var(--red)); }
+.status { font-size: 14px; color: var(--muted); min-height: 20px; }
+.note { font-size: 13px; color: var(--muted); line-height: 1.4; margin: 0; }
+.note b { color: #fff; }
+.readout { display: flex; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.readout span { background: rgba(0, 0, 0, 0.3); border-radius: 10px; padding: 3px 10px; }
+.readout b { color: var(--yellow); }
+canvas { width: 100%; height: 170px; border-radius: 12px; background: rgba(0, 0, 0, 0.3); display: block; }
+.legend { display: flex; gap: 12px; font-size: 12px; font-weight: 800; flex-wrap: wrap; }
+.legend i { display: inline-block; width: 14px; height: 4px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+.chain { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; font-weight: 800; }
+.chain span { border: 2px solid var(--line); border-radius: 999px; padding: 3px 10px; color: var(--muted); }
+.chain span.on { border-color: var(--accent); color: #fff; background: rgba(94, 227, 122, 0.15); }
+.chain em { color: var(--muted); font-style: normal; }
+.laugh { font-family: "Lilita One"; font-size: 22px; border-radius: 16px; padding: 6px 14px; background: rgba(255, 255, 255, 0.08); border: 3px solid var(--line); transition: all 0.1s; }
+.laugh.hit { background: var(--red); border-color: #fff; transform: scale(1.06) rotate(-2deg); }
+.seg { display: flex; flex-wrap: wrap; gap: 6px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="hero">
+    <h1>MindSwap · <span>Voz 7</span></h1>
+    <p>Experimento: <b>normalizar tu voz en vivo</b> para que se note menos quién eres. Aplana el volumen, la entonación y las risas, así lo que queda es lo que sí se puede <b>imitar</b>. Cada etapa se prende y se apaga por separado. No toca el juego.</p>
+  </div>
+  <div id="originBanner"></div>
+  <div class="banner warn">🎧 <b>Usa audífonos</b> para "Escucharme en vivo". Con bocinas se acopla (pitido). Grabar y reproducir funciona sin audífonos.</div>
+
+  <!-- ⓪ micrófono -->
+  <div class="card">
+    <div class="head"><h2>⓪ Micrófono <small>lo que ya hace el navegador</small></h2></div>
+    <div class="row">
+      <label class="check"><input type="checkbox" id="optEC" checked> Cancelar eco</label>
+      <label class="check"><input type="checkbox" id="optNS" checked> Quitar ruido</label>
+      <label class="check"><input type="checkbox" id="optAGC" checked> Volumen automático (AGC)</label>
+    </div>
+    <div class="row">
+      <button class="btn go" id="micBtn">🎙️ Abrir micrófono</button>
+      <button class="btn" id="liveBtn" disabled>🎧 Escucharme en vivo</button>
+      <button class="btn" id="recBtn" disabled>⏺️ Grabar 6 s</button>
+      <button class="btn" id="playRaw" disabled>🙂 Oír crudo</button>
+      <button class="btn" id="playProc" disabled>✨ Oír procesado</button>
+      <button class="btn stop" id="stopBtn">⏹ Parar</button>
+    </div>
+    <p class="note">"Oír procesado" pasa la grabación <b>por la cadena actual</b>: puedes mover los sliders mientras suena y comparar con el crudo.</p>
+    <div class="meters">
+      <span>Entrada</span><div class="meter"><div id="mIn"></div></div><b id="vIn">—</b>
+      <span>Tras nivelador</span><div class="meter"><div id="mLv"></div></div><b id="vLv">—</b>
+      <span>Salida final</span><div class="meter"><div id="mOut"></div></div><b id="vOut">—</b>
+    </div>
+    <div class="chain" id="chain"></div>
+    <div class="status" id="status">Abre el micrófono para empezar.</div>
+  </div>
+
+  <!-- a) nivelador -->
+  <div class="card" id="cardLv">
+    <div class="head"><h2>ⓐ Nivelador <small>aplana subidas y bajadas de volumen</small></h2><button class="btn tog" data-stage="lv">Apagado</button></div>
+    <div class="sliders">
+      <span>Volumen objetivo</span><input type="range" id="lvTarget" min="-36" max="-12" value="-24"><b id="lvTargetV"></b>
+      <span>Velocidad del AGC</span><input type="range" id="lvSpeed" min="0.2" max="5" step="0.1" value="1.5"><b id="lvSpeedV"></b>
+      <span>Umbral compresor</span><input type="range" id="lvThr" min="-60" max="-10" value="-35"><b id="lvThrV"></b>
+      <span>Ratio</span><input type="range" id="lvRatio" min="1" max="20" value="12"><b id="lvRatioV"></b>
+    </div>
+    <div class="readout">
+      <span>Variación al hablar, entrada: <b id="dynIn">—</b></span>
+      <span>tras nivelador: <b id="dynLv">—</b></span>
+      <span>AGC: <b id="agcV">0 dB</b></span>
+      <span>Compresión: <b id="compV">0 dB</b></span>
+    </div>
+    <p class="note">Pasa-altos de 90 Hz → AGC lento propio (solo sube cuando hablas, así no infla el ruido) → compresor fuerte. La "variación" es la desviación estándar del nivel en dB en los últimos 4 s con voz: mientras más baja, más plano.</p>
+  </div>
+
+  <!-- b) entonación -->
+  <div class="card" id="cardPitch">
+    <div class="head"><h2>ⓑ Aplanar entonación <small>tono = objetivo + (f0 − media) · k</small></h2><button class="btn tog" data-stage="pitch">Apagado</button></div>
+    <div class="banner bad" id="ssMsg" hidden></div>
+    <div class="sliders">
+      <span>k (expresividad)</span><input type="range" id="pk" min="0" max="1.5" step="0.05" value="0.5"><b id="pkV"></b>
+      <span>Tono objetivo</span><input type="range" id="pTarget" min="80" max="300" value="150"><b id="pTargetV"></b>
+    </div>
+    <canvas id="f0plot" width="860" height="170"></canvas>
+    <div class="legend"><span><i style="background:rgba(255,255,255,.7)"></i>Tu tono (entrada)</span><span><i style="background:var(--accent)"></i>Tono de salida</span><span><i style="background:var(--yellow)"></i>Tu media</span><span><i style="background:var(--blue)"></i>Objetivo</span></div>
+    <div class="readout">
+      <span>f0: <b id="f0V">—</b></span><span>Media: <b id="meanV">—</b></span><span>Corrimiento: <b id="shiftV">—</b></span>
+      <span>Rango entrada: <b id="rngIn">—</b></span><span>salida: <b id="rngOut">—</b></span>
+    </div>
+    <p class="note"><b>k = 1</b>: natural (solo corre la media al objetivo, como el juego hoy). <b>k = 0.5</b>: la mitad de subidas y bajadas. <b>k = 0</b>: monótono. El tono se mide unas 40 veces por segundo (autocorrelación, como <code>pitch.ts</code>) y mueve Signalsmith. Va unos 30–60 ms atrasado, por eso en los cambios bruscos se oye un pequeño deslizamiento.</p>
+  </div>
+
+  <!-- c) formantes -->
+  <div class="card" id="cardFormant">
+    <div class="head"><h2>ⓒ Formantes <small>el "color" de la voz, sin tocar el tono</small></h2><button class="btn tog" data-stage="formant">Apagado</button></div>
+    <div class="banner bad" id="ssMsg2" hidden></div>
+    <div class="sliders">
+      <span>Formantes</span><input type="range" id="fSemi" min="-6" max="6" step="0.5" value="0"><b id="fSemiV"></b>
+    </div>
+    <p class="note">Negativo = tracto vocal más largo (más "grande"), positivo = más corto. Aquí se corren todos los formantes por igual. <b>McAdams</b> (ver <code>plan-voz-anonimato.md</code> §2.4) los deforma de forma no lineal (ángulo de cada polo LPC φ → φ<sup>α</sup>, α ≈ 0,8), que borra mejor la identidad. Necesita un worklet propio; aquí no está.</p>
+  </div>
+
+  <!-- d) risas -->
+  <div class="card" id="cardLaugh">
+    <div class="head"><h2>ⓓ Detector de risas <small>heurística, sin IA</small></h2><button class="btn tog" data-stage="laugh">Apagado</button></div>
+    <div class="row"><span class="laugh" id="laughPill">😐 sin risa</span><button class="btn sm" id="cannedTest">🔊 Probar risa enlatada</button></div>
+    <div class="meters">
+      <span>Probabilidad</span><div class="meter score"><div id="mScore"></div></div><b id="vScore">—</b>
+    </div>
+    <div class="readout"><span>Ritmo "ja-ja": <b id="fPer">—</b></span><span>Golpes: <b id="fDepth">—</b></span><span>Aire/voz: <b id="fAlt">—</b></span><span>Tono alto: <b id="fHigh">—</b></span></div>
+    <div class="row"><b>Al detectar:</b>
+      <div class="seg" id="laughAct">
+        <button class="btn sm" data-a="none">Nada</button>
+        <button class="btn sm on" data-a="duck">Bajar volumen</button>
+        <button class="btn sm" data-a="robot">Robotizar</button>
+        <button class="btn sm" data-a="canned">Risa enlatada</button>
+      </div>
+    </div>
+    <div class="sliders">
+      <span>Umbral</span><input type="range" id="lThr" min="0.25" max="0.9" step="0.05" value="0.55"><b id="lThrV"></b>
+      <span>Retraso de seguridad</span><input type="range" id="lAhead" min="0" max="600" step="50" value="0"><b id="lAheadV"></b>
+    </div>
+    <p class="note">Mira 1,2 s hacia atrás: ritmo regular de 4–8 golpes/s, golpes profundos (de casi silencio a fuerte), alternancia aire/voz ("h-a-h-a") y tono más alto que tu media. Tarda ~0,4 s en decidir, así que el primer "JA" se escapa. El <b>retraso de seguridad</b> atrasa tu voz para que el detector llegue antes, a cambio de latencia. La risa enlatada usa el <b>tono objetivo</b> de ⓑ (la risa "del cuerpo").</p>
+  </div>
+
+  <!-- e) susurro -->
+  <div class="card" id="cardWhisper">
+    <div class="head"><h2>ⓔ Modo susurro <small>vocoder de ruido: se va el tono por completo</small></h2><button class="btn tog" data-stage="whisper">Apagado</button></div>
+    <div class="sliders">
+      <span>Mezcla</span><input type="range" id="wMix" min="0" max="100" value="100"><b id="wMixV"></b>
+      <span>Fuerza</span><input type="range" id="wGain" min="2" max="40" value="14"><b id="wGainV"></b>
+      <span>Suavidad</span><input type="range" id="wSmooth" min="10" max="80" value="35"><b id="wSmoothV"></b>
+    </div>
+    <p class="note">16 bandas: la envolvente de cada banda de tu voz (|x| con WaveShaper → pasa-bajos) maneja la ganancia de la misma banda de <b>ruido</b>. No queda tono, ni entonación, ni voz rasposa: todos susurran igual. Solo quedan las palabras y el ritmo.</p>
+  </div>
+
+  <!-- f) walkie -->
+  <div class="card" id="cardWalkie">
+    <div class="head"><h2>ⓕ Walkie <small>al final: iguala micrófonos</small></h2></div>
+    <div class="seg" id="walkieSeg">
+      <button class="btn on" data-w="0">Off</button>
+      <button class="btn" data-w="1">📻 Poquito</button>
+      <button class="btn" data-w="2">📻 Distorsión</button>
+      <button class="btn" data-w="3">📻 Radio</button>
+    </div>
+    <div class="sliders">
+      <span>Estática</span><input type="range" id="stLevel" min="-40" max="-10" value="-24"><b id="stLevelV"></b>
+      <span>Sensibilidad</span><input type="range" id="stSens" min="2" max="40" value="12"><b id="stSensV"></b>
+    </div>
+    <p class="note"><b>Poquito</b>: pasa-banda de 300–3.400 Hz. <b>Distorsión</b>: pasa-banda de 500–2.600 Hz + saturación, sin estática. <b>Radio</b>: lo mismo + estática que <b>solo suena mientras hablas</b>: |voz| → pasa-bajos de 15 Hz → ganancia → maneja la ganancia del ruido.</p>
+  </div>
+</div>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const isFile = location.protocol === "file:";
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const dbToLin = (db) => Math.pow(10, db / 20);
+const linToDb = (v) => 20 * Math.log10(Math.max(v, 1e-6));
+const TICK_MS = 25; // análisis 40 veces por segundo
+const status = (t) => ($("status").textContent = t);
+
+// ---------------- aviso según el origen ----------------
+const secure = window.isSecureContext || isFile;
+$("originBanner").innerHTML = !window.AudioContext
+  ? `<div class="banner bad">Este navegador no tiene Web Audio. Prueba con Chrome o Firefox recientes.</div>`
+  : isFile
+  ? `<div class="banner warn">📂 Estás en <b>file://</b>. Todo funciona menos ⓑ y ⓒ: Signalsmith usa un worklet desde <code>blob:</code>, y el navegador lo bloquea en file://. Para probarlo todo: <code>npx serve mockups</code> y abre <b>http://localhost:3000/voz-7</b>.</div>`
+  : !secure
+  ? `<div class="banner bad">El micrófono solo funciona en https o en localhost.</div>`
+  : `<div class="banner ok">✔ Servido por ${location.protocol}//: todas las etapas deberían funcionar.</div>`;
+
+// ---------------- estado ----------------
+let ctx = null, micStream = null, micSrc = null, noiseBuf = null;
+let ss = null; // nodo de Signalsmith (o null)
+let recBuf = null, playing = null, liveOn = false;
+const on = { lv: false, pitch: false, formant: false, laugh: false, whisper: false };
+let walkieLevel = 0, laughAction = "duck";
+const N = {}; // nodos de la cadena
+
+// ---------------- cadena ----------------
+// inBus → nivelador → Signalsmith → risas → susurro → walkie → limitador → monitor → altavoces
+function G(v = 1) { const g = ctx.createGain(); g.gain.value = v; return g; }
+function biquad(type, f, q) { const b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = f; if (q) b.Q.value = q; return b; }
+function shaper(fn) { const s = ctx.createWaveShaper(); const c = new Float32Array(1024); for (let i = 0; i < 1024; i++) c[i] = fn(i / 511.5 - 1); s.curve = c; return s; }
+function noise() { const n = ctx.createBufferSource(); n.buffer = noiseBuf; n.loop = true; n.start(); return n; }
+function analyser() { const a = ctx.createAnalyser(); a.fftSize = 2048; return a; }
+
+function buildChain() {
+  noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+  const d = noiseBuf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+
+  N.inBus = G();
+  N.anIn = analyser(); N.inBus.connect(N.anIn);
+
+  // ⓐ nivelador
+  N.lvIn = G(); N.lvOut = G();
+  N.lvHp = biquad("highpass", 90, 0.7);
+  N.agc = G();
+  N.comp = ctx.createDynamicsCompressor();
+  N.comp.knee.value = 6; N.comp.attack.value = 0.003; N.comp.release.value = 0.15;
+  N.makeup = G();
+  N.lvHp.connect(N.agc); N.agc.connect(N.comp); N.comp.connect(N.makeup); N.makeup.connect(N.lvOut);
+  N.inBus.connect(N.lvIn);
+  N.anLv = analyser(); N.lvOut.connect(N.anLv); // también se usa para detectar el tono
+
+  // ⓑⓒ Signalsmith (se enchufa cuando carga)
+  N.psIn = G(); N.psOut = G();
+  N.lvOut.connect(N.psIn);
+
+  // ⓓ risas: retraso → seco / ring-mod, más la risa enlatada
+  N.lgIn = G(); N.lgOut = G();
+  N.lgDelay = ctx.createDelay(1); N.lgDelay.delayTime.value = 0;
+  N.lgDry = G(1);
+  N.ringVca = G(0);
+  N.ringOsc = ctx.createOscillator(); N.ringOsc.frequency.value = 55; N.ringOsc.connect(N.ringVca.gain); N.ringOsc.start();
+  N.lgWet = G(0);
+  N.psOut.connect(N.lgIn); N.lgIn.connect(N.lgDelay);
+  N.lgDelay.connect(N.lgDry); N.lgDry.connect(N.lgOut);
+  N.lgDelay.connect(N.ringVca); N.ringVca.connect(N.lgWet); N.lgWet.connect(N.lgOut);
+
+  // ⓔ susurro
+  N.wsIn = G(); N.wsOut = G(); N.wsDry = G(1); N.wsWet = G(0);
+  N.lgOut.connect(N.wsIn); N.wsIn.connect(N.wsDry); N.wsDry.connect(N.wsOut); N.wsWet.connect(N.wsOut);
+  buildWhisper();
+
+  // ⓕ walkie + final
+  N.wkIn = G(); N.wkOut = G();
+  N.wsOut.connect(N.wkIn);
+  N.limiter = ctx.createDynamicsCompressor();
+  N.limiter.threshold.value = -3; N.limiter.ratio.value = 20; N.limiter.attack.value = 0.002; N.limiter.release.value = 0.1;
+  N.wkOut.connect(N.limiter);
+  N.anOut = analyser(); N.limiter.connect(N.anOut);
+  N.monitor = G(0); N.limiter.connect(N.monitor); N.monitor.connect(ctx.destination);
+
+  setBypass("lv"); setBypass("pitch"); setWalkie(walkieLevel);
+  applyLevelerParams();
+}
+
+/** ⓐ y ⓑⓒ: si la etapa está apagada, la entrada va directo a la salida. */
+function setBypass(which) {
+  if (which === "lv") {
+    try { N.lvIn.disconnect(); } catch {}
+    N.lvIn.connect(on.lv ? N.lvHp : N.lvOut);
+  } else {
+    try { N.psIn.disconnect(); } catch {}
+    N.psIn.connect(ss && (on.pitch || on.formant) ? ss : N.psOut);
+  }
+}
+
+// ---------------- ⓔ vocoder de ruido ----------------
+function buildWhisper() {
+  const BANDS = 16, LO = 150, HI = 7000;
+  const rect = (x) => Math.abs(x);
+  N.wsVocIn = G();
+  N.wsEnvGains = []; N.wsEnvLps = [];
+  const carrier = noise();
+  const out = G(2.2); out.connect(N.wsWet);
+  for (let i = 0; i < BANDS; i++) {
+    const f = LO * Math.pow(HI / LO, i / (BANDS - 1));
+    const mod = biquad("bandpass", f, 6);
+    const r = shaper(rect);
+    const lp = biquad("lowpass", 35);
+    const eg = G(14);
+    const car = biquad("bandpass", f, 6);
+    const vca = G(0);
+    N.wsVocIn.connect(mod); mod.connect(r); r.connect(lp); lp.connect(eg); eg.connect(vca.gain);
+    carrier.connect(car); car.connect(vca); vca.connect(out);
+    N.wsEnvGains.push(eg); N.wsEnvLps.push(lp);
+  }
+}
+function setWhisper() {
+  const m = $("wMix").value / 100;
+  const t = ctx.currentTime;
+  try { N.wsIn.disconnect(N.wsVocIn); } catch {}
+  if (on.whisper) N.wsIn.connect(N.wsVocIn);
+  N.wsDry.gain.setTargetAtTime(on.whisper ? 1 - m : 1, t, 0.03);
+  N.wsWet.gain.setTargetAtTime(on.whisper ? m : 0, t, 0.03);
+  for (const g of N.wsEnvGains) g.gain.value = +$("wGain").value;
+  for (const lp of N.wsEnvLps) lp.frequency.value = +$("wSmooth").value;
+}
+
+// ---------------- ⓕ walkie ----------------
+let walkieNodes = [];
+function setWalkie(level) {
+  walkieLevel = level;
+  for (const n of walkieNodes) { try { n.stop?.(); } catch {} try { n.disconnect(); } catch {} }
+  walkieNodes = [];
+  try { N.wkIn.disconnect(); } catch {}
+  if (level === 0) return N.wkIn.connect(N.wkOut);
+  const [hpHz, lpHz, drive] = level === 1 ? [300, 3400, 0] : [500, 2600, 4];
+  const hp = biquad("highpass", hpHz, 0.9), lp = biquad("lowpass", lpHz, 0.9);
+  N.wkIn.connect(hp); hp.connect(lp);
+  walkieNodes.push(hp, lp);
+  let last = lp;
+  if (drive) {
+    const sh = shaper((x) => Math.tanh(drive * x) / Math.tanh(drive));
+    const post = G(0.8);
+    lp.connect(sh); sh.connect(post); last = post;
+    walkieNodes.push(sh, post);
+  }
+  last.connect(N.wkOut);
+  if (level === 3) {
+    // estática que solo suena mientras hablas: |voz| → pasa-bajos 15 Hz → ganancia → puerta → noiseGain.gain
+    const rect = shaper((x) => Math.abs(x));
+    const env = biquad("lowpass", 15, 0.7);
+    const sens = G(+$("stSens").value);
+    const gate = shaper((x) => clamp((x - 0.12) / 0.4, 0, 1)); // por debajo del umbral: 0
+    const n = noise();
+    const nhp = biquad("highpass", 900, 0.7), nlp = biquad("lowpass", 5500, 0.7);
+    const stGain = G(dbToLin(+$("stLevel").value));
+    const noiseGain = G(0); // la ganancia base es 0: solo la mueve la envolvente
+    N.wkIn.connect(rect); rect.connect(env); env.connect(sens); sens.connect(gate); gate.connect(noiseGain.gain);
+    n.connect(nhp); nhp.connect(nlp); nlp.connect(stGain); stGain.connect(noiseGain); noiseGain.connect(N.wkOut);
+    N.stSens = sens; N.stLevel = stGain;
+    walkieNodes.push(rect, env, sens, gate, n, nhp, nlp, stGain, noiseGain);
+  }
+  drawChain();
+}
+
+// ---------------- ⓓ risa enlatada sintetizada ("ja-ja-ja" con el tono del cuerpo) ----------------
+function cannedLaugh(dest = N.lgOut) {
+  const t0 = ctx.currentTime + 0.02;
+  const base = +$("pTarget").value * 1.5; // al reír el tono sube
+  const out = G(0.9); out.connect(dest);
+  for (let i = 0; i < 5; i++) {
+    const t = t0 + i * 0.19, f = base * (1 - 0.05 * i);
+    // "h": soplo de ruido antes de cada golpe
+    const h = ctx.createBufferSource(); h.buffer = noiseBuf;
+    const hbp = biquad("bandpass", 1800, 1), hg = G(0);
+    h.connect(hbp); hbp.connect(hg); hg.connect(out);
+    hg.gain.setValueAtTime(0, t - 0.05); hg.gain.linearRampToValueAtTime(0.25, t - 0.02); hg.gain.linearRampToValueAtTime(0, t + 0.01);
+    h.start(t - 0.05, Math.random()); h.stop(t + 0.03);
+    // "a": sierra por dos formantes de la vocal a
+    const o = ctx.createOscillator(); o.type = "sawtooth";
+    o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * 0.88, t + 0.15);
+    const f1 = biquad("bandpass", 800, 5), f2 = biquad("bandpass", 1250, 6), eg = G(0);
+    o.connect(f1); o.connect(f2); f1.connect(eg); f2.connect(eg); eg.connect(out);
+    eg.gain.setValueAtTime(0, t); eg.gain.linearRampToValueAtTime(0.7, t + 0.02); eg.gain.linearRampToValueAtTime(0, t + 0.15);
+    o.start(t); o.stop(t + 0.18);
+  }
+  setTimeout(() => out.disconnect(), 1500);
+}
+
+// ---------------- detección de tono (autocorrelación normalizada, diezmada ×2) ----------------
+const dec = new Float32Array(1024);
+/** F0 de un cuadro de 2048 muestras (70–400 Hz). 0 si no hay voz clara. */
+function detectF0(buf, rate) {
+  const n = dec.length, r = rate / 2;
+  let e = 0;
+  for (let i = 0; i < n; i++) { const v = (buf[2 * i] + buf[2 * i + 1]) * 0.5; dec[i] = v; e += v * v; }
+  if (Math.sqrt(e / n) < 0.008) return 0;
+  const minLag = Math.floor(r / 400), maxLag = Math.floor(r / 70);
+  const nsdf = new Float32Array(maxLag + 2);
+  let best = 0;
+  for (let lag = minLag; lag <= maxLag + 1; lag++) {
+    let acf = 0, m = 0;
+    for (let i = 0; i < n - lag; i++) { const a = dec[i], b = dec[i + lag]; acf += a * b; m += a * a + b * b; }
+    nsdf[lag] = m > 0 ? (2 * acf) / m : 0;
+    if (lag <= maxLag && nsdf[lag] > best) best = nsdf[lag];
+  }
+  if (best < 0.55) return 0;
+  // primer pico que llegue al 85 % del máximo: evita errores de octava hacia abajo
+  for (let lag = minLag + 1; lag <= maxLag; lag++) {
+    if (nsdf[lag] >= 0.85 * best && nsdf[lag] >= nsdf[lag - 1] && nsdf[lag] >= nsdf[lag + 1]) {
+      const a = nsdf[lag - 1], b = nsdf[lag], c = nsdf[lag + 1];
+      const shift = (a - c) / (2 * (a - 2 * b + c) || 1); // interpolación parabólica
+      return r / (lag + clamp(shift, -0.5, 0.5));
+    }
+  }
+  return 0;
+}
+
+// ---------------- bucle de análisis ----------------
+const bufIn = new Float32Array(2048), bufLv = new Float32Array(2048), bufOut = new Float32Array(2048);
+const rmsDb = (b, from = 1024) => { let s = 0; for (let i = from; i < b.length; i++) s += b[i] * b[i]; return linToDb(Math.sqrt(s / (b.length - from))); };
+const GATE_DB = -50;
+const st = {
+  inDb: -99, lvDb: -99, outDb: -99, agcDb: 0,
+  dynIn: [], dynLv: [], // niveles con voz (4 s)
+  f0: 0, meanS: null, shift: 0, sent: { s: null, f: null, b: null }, f0hist: [], semIn: [], semOut: [],
+  med: [], // últimos 3 f0 (filtro de mediana)
+  win: [], // ventana de 1,2 s para risas: { db, voiced, s }
+  score: 0, laughing: false, laughUntil: 0, nextCanned: 0,
+};
+const toSemi = (hz) => 12 * Math.log2(hz / 55);
+const toHz = (s) => 55 * Math.pow(2, s / 12);
+const std = (a) => { if (a.length < 5) return null; const m = a.reduce((p, v) => p + v, 0) / a.length; return Math.sqrt(a.reduce((p, v) => p + (v - m) ** 2, 0) / a.length); };
+const push = (arr, v, max) => { arr.push(v); if (arr.length > max) arr.shift(); };
+
+function tick() {
+  if (!ctx) return;
+  const dt = TICK_MS / 1000;
+  N.anIn.getFloatTimeDomainData(bufIn);
+  N.anLv.getFloatTimeDomainData(bufLv);
+  N.anOut.getFloatTimeDomainData(bufOut);
+  st.inDb = rmsDb(bufIn); st.lvDb = rmsDb(bufLv); st.outDb = rmsDb(bufOut);
+  const speaking = st.inDb > GATE_DB;
+
+  // ⓐ AGC lento: solo se ajusta cuando hay voz
+  if (on.lv) {
+    if (speaking) {
+      const desired = clamp(+$("lvTarget").value - st.inDb, -10, 24);
+      st.agcDb += (desired - st.agcDb) * Math.min(1, dt / +$("lvSpeed").value);
+    }
+    N.agc.gain.setTargetAtTime(dbToLin(st.agcDb), ctx.currentTime, 0.03);
+  }
+  if (speaking) { push(st.dynIn, st.inDb, 160); push(st.dynLv, st.lvDb, 160); }
+
+  // ⓑ tono por cuadro
+  let f0 = detectF0(bufLv, ctx.sampleRate);
+  let s = f0 ? toSemi(f0) : null;
+  if (s !== null) {
+    push(st.med, s, 3);
+    s = [...st.med].sort((a, b) => a - b)[Math.floor(st.med.length / 2)];
+    if (st.meanS !== null && Math.abs(s - st.meanS) > 10) s = null; // salto raro: probable error de octava
+  }
+  if (s !== null) {
+    st.meanS = st.meanS === null ? s : st.meanS + (s - st.meanS) * (dt / 4); // media de ~4 s
+    const k = +$("pk").value;
+    const outS = toSemi(+$("pTarget").value) + (s - st.meanS) * k;
+    const target = on.pitch && ss ? clamp(outS - s, -12, 12) : 0;
+    st.shift += (target - st.shift) * 0.6;
+    push(st.semIn, s, 160); push(st.semOut, s + st.shift, 160);
+  } else if (!(on.pitch && ss)) st.shift = 0; // sin voz: se mantiene el último corrimiento
+  st.f0 = s !== null ? toHz(s) : 0;
+  push(st.f0hist, { i: s !== null ? toHz(s) : 0, o: s !== null ? toHz(s + st.shift) : 0, m: st.meanS }, 344);
+  sendSS();
+
+  // ⓓ risas
+  push(st.win, { db: st.inDb, voiced: s !== null, s }, 48);
+  laughTick();
+}
+setInterval(tick, TICK_MS);
+
+/** Manda tono y formantes a Signalsmith solo si cambiaron. */
+function sendSS() {
+  if (!ss) return;
+  const semis = Math.round(st.shift * 20) / 20;
+  const formant = on.formant ? +$("fSemi").value : 0;
+  const base = st.meanS !== null ? Math.round(toHz(st.meanS) / 5) * 5 : 150;
+  const p = st.sent;
+  if (p.s === semis && p.f === formant && p.b === base) return;
+  Object.assign(p, { s: semis, f: formant, b: base });
+  try { ss.schedule({ active: true, semitones: semis, formantSemitones: formant, formantCompensation: true, formantBaseHz: base })?.catch?.(() => {}); } catch {}
+}
+
+// ---------------- ⓓ heurística de risa ----------------
+function laughTick() {
+  const w = st.win;
+  let score = 0, sPer = 0, sDepth = 0, sAlt = 0, sHigh = 0;
+  if (w.length >= 40) {
+    const dbs = w.map((x) => Math.max(x.db, -60));
+    const active = dbs.filter((v) => v > -45).length / dbs.length;
+    const sorted = [...dbs].sort((a, b) => a - b);
+    const depth = sorted[Math.floor(0.9 * (sorted.length - 1))] - sorted[Math.floor(0.1 * (sorted.length - 1))];
+    sDepth = clamp((depth - 8) / 12, 0, 1);
+    // periodicidad de la envolvente en 4–8 Hz (retardos de 5 a 10 ticks)
+    const m = dbs.reduce((p, v) => p + v, 0) / dbs.length;
+    const e = dbs.map((v) => v - m);
+    const e0 = e.reduce((p, v) => p + v * v, 0) || 1;
+    let rmax = 0;
+    for (let l = 5; l <= 10; l++) { let r = 0; for (let i = 0; i + l < e.length; i++) r += e[i] * e[i + l]; rmax = Math.max(rmax, r / e0); }
+    sPer = clamp((rmax - 0.1) / 0.5, 0, 1);
+    // alternancia aire/voz ("h-a-h-a")
+    let flips = 0;
+    for (let i = 1; i < w.length; i++) if (w[i].voiced !== w[i - 1].voiced) flips++;
+    sAlt = clamp((flips / 1.2 - 2) / 5, 0, 1);
+    // tono por encima de tu media
+    const vs = w.filter((x) => x.s !== null).map((x) => x.s).sort((a, b) => a - b);
+    if (vs.length >= 4 && st.meanS !== null) sHigh = clamp((vs[Math.floor(vs.length / 2)] - st.meanS - 1) / 4, 0, 1);
+    if (active > 0.35) score = 0.35 * sPer + 0.25 * sDepth + 0.2 * sAlt + 0.2 * sHigh;
+  }
+  st.score += (score - st.score) * 0.3;
+  st.feat = { sPer, sDepth, sAlt, sHigh };
+  if (!on.laugh) { if (st.laughing) setLaughing(false); return; }
+  const thr = +$("lThr").value, now = performance.now();
+  const hold = 400 + +$("lAhead").value;
+  if (st.score > thr) { st.laughUntil = now + hold; if (!st.laughing) setLaughing(true); }
+  else if (st.laughing && st.score < thr - 0.15 && now > st.laughUntil) setLaughing(false);
+  if (st.laughing && laughAction === "canned" && now > st.nextCanned) { cannedLaugh(); st.nextCanned = now + 1300; }
+}
+function setLaughing(v) {
+  st.laughing = v;
+  if (v) st.nextCanned = 0;
+  applyLaughAction();
+  $("laughPill").textContent = v ? "😂 ¡risa!" : "😐 sin risa";
+  $("laughPill").classList.toggle("hit", v);
+}
+function applyLaughAction() {
+  const t = ctx.currentTime, hit = st.laughing && on.laugh;
+  const dry = !hit || laughAction === "none" ? 1 : laughAction === "duck" ? dbToLin(-15) : 0;
+  N.lgDry.gain.setTargetAtTime(dry, t, 0.03);
+  N.lgWet.gain.setTargetAtTime(hit && laughAction === "robot" ? 1.4 : 0, t, 0.03);
+}
+
+// ---------------- dibujo (medidores y gráfico) ----------------
+const pct = (db) => clamp(((db + 70) / 70) * 100, 0, 100) + "%";
+const fmtDb = (db) => (db < -90 ? "—" : Math.round(db) + " dB");
+function draw() {
+  requestAnimationFrame(draw);
+  if (!ctx) return;
+  $("mIn").style.width = pct(st.inDb); $("vIn").textContent = fmtDb(st.inDb);
+  $("mLv").style.width = pct(st.lvDb); $("vLv").textContent = fmtDb(st.lvDb);
+  $("mOut").style.width = pct(st.outDb); $("vOut").textContent = fmtDb(st.outDb);
+  const di = std(st.dynIn), dl = std(st.dynLv);
+  $("dynIn").textContent = di === null ? "—" : `±${di.toFixed(1)} dB`;
+  $("dynLv").textContent = dl === null ? "—" : `±${dl.toFixed(1)} dB`;
+  $("agcV").textContent = `${st.agcDb >= 0 ? "+" : ""}${st.agcDb.toFixed(1)} dB`;
+  $("compV").textContent = `${(N.comp.reduction ?? 0).toFixed(1)} dB`;
+  $("f0V").textContent = st.f0 ? `${Math.round(st.f0)} Hz` : "—";
+  $("meanV").textContent = st.meanS !== null ? `${Math.round(toHz(st.meanS))} Hz` : "—";
+  $("shiftV").textContent = `${st.shift >= 0 ? "+" : ""}${st.shift.toFixed(1)} st`;
+  const ri = std(st.semIn), ro = std(st.semOut);
+  $("rngIn").textContent = ri === null ? "—" : `±${ri.toFixed(1)} st`;
+  $("rngOut").textContent = ro === null ? "—" : `±${ro.toFixed(1)} st`;
+  $("mScore").style.width = st.score * 100 + "%"; $("vScore").textContent = Math.round(st.score * 100) + " %";
+  const f = st.feat;
+  if (f) { $("fPer").textContent = Math.round(f.sPer * 100) + "%"; $("fDepth").textContent = Math.round(f.sDepth * 100) + "%"; $("fAlt").textContent = Math.round(f.sAlt * 100) + "%"; $("fHigh").textContent = Math.round(f.sHigh * 100) + "%"; }
+  drawF0();
+}
+requestAnimationFrame(draw);
+
+function drawF0() {
+  const c = $("f0plot"), g = c.getContext("2d"), W = c.width, H = c.height;
+  const LO = 60, HI = 500, yOf = (hz) => H - 8 - (Math.log(hz / LO) / Math.log(HI / LO)) * (H - 16);
+  g.clearRect(0, 0, W, H);
+  g.fillStyle = "rgba(255,255,255,.35)"; g.font = "11px Nunito";
+  for (const hz of [100, 150, 200, 300, 400]) { g.fillRect(0, yOf(hz), W, 1); g.fillText(hz + " Hz", 4, yOf(hz) - 3); }
+  const h = st.f0hist, dx = W / 344;
+  const tgt = +$("pTarget").value;
+  g.strokeStyle = "#6cc8ff"; g.setLineDash([6, 6]); g.lineWidth = 2;
+  g.beginPath(); g.moveTo(0, yOf(tgt)); g.lineTo(W, yOf(tgt)); g.stroke(); g.setLineDash([]);
+  const line = (key, color, width) => {
+    g.strokeStyle = color; g.lineWidth = width; g.beginPath();
+    let pen = false;
+    h.forEach((p, i) => {
+      const v = key === "m" ? (p.m !== null ? toHz(p.m) : 0) : p[key];
+      if (!v) { pen = false; return; }
+      const x = i * dx, y = yOf(clamp(v, LO, HI));
+      pen ? g.lineTo(x, y) : g.moveTo(x, y); pen = true;
+    });
+    g.stroke();
+  };
+  line("m", "#ffd23d", 2);
+  line("i", "rgba(255,255,255,.7)", 2);
+  if (on.pitch && ss) line("o", "#5ee37a", 3);
+}
+
+function drawChain() {
+  const parts = [
+    ["Mic", true], ["ⓐ Nivelador", on.lv], ["ⓑ Entonación", on.pitch && !!ss], ["ⓒ Formantes", on.formant && !!ss],
+    ["ⓓ Risas", on.laugh], ["ⓔ Susurro", on.whisper], ["ⓕ Walkie", walkieLevel > 0], ["Salida", true],
+  ];
+  $("chain").innerHTML = parts.map(([t, a]) => `<span class="${a ? "on" : ""}">${t}</span>`).join("<em>→</em>");
+}
+drawChain();
+
+// ---------------- Signalsmith (WASM + AudioWorklet) ----------------
+async function loadSignalsmith() {
+  const fail = (msg) => {
+    for (const id of ["ssMsg", "ssMsg2"]) { $(id).hidden = false; $(id).textContent = "✖ " + msg; }
+    for (const id of ["cardPitch", "cardFormant"]) $(id).classList.add("disabled");
+    for (const b of document.querySelectorAll('[data-stage="pitch"],[data-stage="formant"]')) b.disabled = true;
+  };
+  if (isFile) return fail("No disponible en file:// (el worklet de Signalsmith se bloquea). Ábrelo por http://localhost.");
+  if (!ctx.audioWorklet) return fail("Este navegador no tiene AudioWorklet.");
+  try {
+    const mod = await import("https://cdn.jsdelivr.net/npm/signalsmith-stretch@1.3.2/SignalsmithStretch.mjs");
+    const node = await Promise.race([mod.default(ctx), new Promise((_, r) => setTimeout(() => r(new Error("no respondió en 5 s")), 5000))]);
+    await node.schedule({ active: true, semitones: 0, formantSemitones: 0, formantCompensation: true, formantBaseHz: 150 });
+    node.connect(N.psOut);
+    ss = node;
+    setBypass("pitch");
+    drawChain();
+  } catch (e) {
+    fail("Signalsmith no cargó: " + (e?.message ?? e) + ". El resto sigue funcionando.");
+  }
+}
+
+// ---------------- micrófono, grabar, reproducir ----------------
+async function openMic() {
+  if (!navigator.mediaDevices?.getUserMedia) return status("Este navegador no deja usar el micrófono aquí (hace falta https o localhost).");
+  const first = !ctx;
+  try {
+    ctx ??= new AudioContext();
+    await ctx.resume();
+    if (first) buildChain();
+    micStream?.getTracks().forEach((t) => t.stop());
+    micSrc?.disconnect();
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: $("optEC").checked, noiseSuppression: $("optNS").checked, autoGainControl: $("optAGC").checked },
+    });
+    micSrc = ctx.createMediaStreamSource(micStream);
+    if (!playing?.proc) micSrc.connect(N.inBus);
+    $("micBtn").textContent = "🔄 Reabrir con estas opciones";
+    for (const id of ["liveBtn", "recBtn"]) $(id).disabled = false;
+    status("✅ Micrófono abierto. Graba 6 s o escúchate en vivo (con audífonos).");
+    if (first) loadSignalsmith();
+  } catch (e) {
+    status("Micrófono: " + (e?.message ?? e));
+  }
+}
+$("micBtn").onclick = openMic;
+for (const id of ["optEC", "optNS", "optAGC"]) $(id).onchange = () => { if (micStream) openMic(); };
+
+function setLive(v) {
+  liveOn = v;
+  $("liveBtn").classList.toggle("on", v);
+  $("liveBtn").textContent = v ? "🎧 En vivo: sí" : "🎧 Escucharme en vivo";
+  if (ctx && !playing?.proc) N.monitor.gain.setTargetAtTime(v ? 1 : 0, ctx.currentTime, 0.02);
+}
+$("liveBtn").onclick = () => setLive(!liveOn);
+
+$("recBtn").onclick = async () => {
+  const btn = $("recBtn");
+  stopPlay();
+  try {
+    const rec = new MediaRecorder(micStream), chunks = [];
+    rec.ondataavailable = (e) => chunks.push(e.data);
+    rec.start(); btn.classList.add("rec"); btn.disabled = true;
+    for (let s = 6; s > 0; s--) { btn.textContent = `⏺️ Habla… ${s}`; await new Promise((r) => setTimeout(r, 1000)); }
+    await new Promise((r) => { rec.onstop = r; rec.stop(); });
+    recBuf = await ctx.decodeAudioData(await new Blob(chunks, { type: rec.mimeType }).arrayBuffer());
+    $("playRaw").disabled = $("playProc").disabled = false;
+    status("✅ Grabado. Compara 🙂 crudo contra ✨ procesado. Prueba reírte, gritar y susurrar en la grabación.");
+  } catch (e) {
+    status("No se pudo grabar: " + (e?.message ?? e));
+  } finally {
+    btn.classList.remove("rec"); btn.disabled = false; btn.textContent = "⏺️ Grabar 6 s";
+  }
+};
+
+function stopPlay() {
+  if (!playing) return;
+  const p = playing; playing = null;
+  try { p.src.onended = null; p.src.stop(); } catch {}
+  try { p.src.disconnect(); } catch {}
+  if (p.proc) { // devolver el micrófono a la cadena
+    micSrc?.connect(N.inBus);
+    N.monitor.gain.setTargetAtTime(liveOn ? 1 : 0, ctx.currentTime, 0.02);
+  }
+  $("playRaw").classList.remove("on"); $("playProc").classList.remove("on");
+}
+async function play(proc) {
+  if (!recBuf) return;
+  stopPlay(); await ctx.resume();
+  const src = ctx.createBufferSource(); src.buffer = recBuf;
+  if (proc) {
+    micSrc?.disconnect(); // mientras suena la grabación, el mic no entra: sin acople
+    src.connect(N.inBus);
+    N.monitor.gain.setTargetAtTime(1, ctx.currentTime, 0.02);
+  } else src.connect(ctx.destination);
+  playing = { src, proc };
+  src.onended = () => { if (playing?.src === src) stopPlay(); };
+  src.start();
+  $(proc ? "playProc" : "playRaw").classList.add("on");
+}
+$("playRaw").onclick = () => play(false);
+$("playProc").onclick = () => play(true);
+$("stopBtn").onclick = () => { stopPlay(); setLive(false); };
+
+// ---------------- controles ----------------
+function applyLevelerParams() {
+  if (!ctx) return;
+  const thr = +$("lvThr").value, ratio = +$("lvRatio").value;
+  N.comp.threshold.value = thr; N.comp.ratio.value = ratio;
+  N.makeup.gain.value = dbToLin(-thr * (1 - 1 / ratio) * 0.5); // compensación aproximada
+}
+const labels = {
+  lvTarget: (v) => `${v} dB`, lvSpeed: (v) => `${(+v).toFixed(1)} s`, lvThr: (v) => `${v} dB`, lvRatio: (v) => `${v}:1`,
+  pk: (v) => (+v).toFixed(2), pTarget: (v) => `${v} Hz`, fSemi: (v) => `${v > 0 ? "+" : ""}${v} st`,
+  lThr: (v) => (+v).toFixed(2), lAhead: (v) => `${v} ms`,
+  wMix: (v) => `${v} %`, wGain: (v) => v, wSmooth: (v) => `${v} Hz`,
+  stLevel: (v) => `${v} dB`, stSens: (v) => v,
+};
+for (const [id, fmt] of Object.entries(labels)) {
+  const el = $(id);
+  const show = () => ($(id + "V").textContent = fmt(el.value));
+  show();
+  el.addEventListener("input", () => {
+    show();
+    if (!ctx) return;
+    if (id.startsWith("lv")) applyLevelerParams();
+    if (id === "lAhead") N.lgDelay.delayTime.setTargetAtTime(el.value / 1000, ctx.currentTime, 0.05);
+    if (id.startsWith("w")) setWhisper();
+    if (id === "stLevel" && N.stLevel && walkieLevel === 3) N.stLevel.gain.value = dbToLin(+el.value);
+    if (id === "stSens" && N.stSens && walkieLevel === 3) N.stSens.gain.value = +el.value;
+  });
+}
+
+for (const b of document.querySelectorAll(".tog")) {
+  const k = b.dataset.stage;
+  const card = b.closest(".card");
+  const paint = () => { b.textContent = on[k] ? "Encendido" : "Apagado"; b.classList.toggle("on", on[k]); card.classList.toggle("off", !on[k]); };
+  paint();
+  b.onclick = () => {
+    if (!ctx) return status("Primero abre el micrófono.");
+    on[k] = !on[k];
+    paint();
+    if (k === "lv") { if (!on.lv) { st.agcDb = 0; N.agc.gain.value = 1; } setBypass("lv"); }
+    if (k === "pitch" || k === "formant") setBypass("pitch");
+    if (k === "laugh") applyLaughAction();
+    if (k === "whisper") setWhisper();
+    drawChain();
+  };
+}
+for (const b of document.querySelectorAll("#laughAct button")) {
+  b.onclick = () => {
+    laughAction = b.dataset.a;
+    for (const x of document.querySelectorAll("#laughAct button")) x.classList.toggle("on", x === b);
+    if (ctx) applyLaughAction();
+  };
+}
+$("cannedTest").onclick = async () => {
+  if (!ctx) return status("Primero abre el micrófono.");
+  await ctx.resume();
+  cannedLaugh(ctx.destination);
+};
+for (const b of document.querySelectorAll("#walkieSeg button")) {
+  b.onclick = () => {
+    for (const x of document.querySelectorAll("#walkieSeg button")) x.classList.toggle("on", x === b);
+    if (ctx) setWalkie(+b.dataset.w); else walkieLevel = +b.dataset.w;
+    drawChain();
+  };
+}
+</script>
+</body>
+</html>

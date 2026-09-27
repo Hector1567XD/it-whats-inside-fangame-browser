@@ -2,9 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import confetti from "canvas-confetti";
 import { Avatar } from "./Avatar";
 import { sfx } from "./sfx";
-import type { PlayerView, Role, StateView } from "./net";
+import { channels, type PlayerView, type Role, type StateView } from "./net";
 
-type Banner = { kind: "QUESTION" | "THREAD" | "DAY" | "NIGHT" | "UNMASK" | "VOTE" | "GUESS" | "FINAL_VOTE" | "RESULTS"; title: string; sub: string; ms: number };
+type Banner = {
+  kind: "QUESTION" | "THREAD" | "DAY" | "NIGHT" | "RADIO" | "UNMASK" | "VOTE" | "GUESS" | "FINAL_VOTE" | "EXACT" | "RESULTS";
+  title: string; sub: string; ms: number; chats?: boolean;
+};
 
 /** Letrero gigante animado cada vez que cambia la fase. */
 export function PhaseBanner({ s, bodyName }: { s: StateView; bodyName: string }) {
@@ -28,7 +31,16 @@ export function PhaseBanner({ s, bodyName }: { s: StateView; bodyName: string })
       sfx.day();
     } else if (s.phase === "NIGHT") {
       const n = s.chatLimit;
-      banner = { kind: "NIGHT", title: `CHAT PRIVADO${cyc}`, sub: `Solo puedes INICIAR ${n} chat${n === 1 ? "" : "s"} privado${n === 1 ? "" : "s"} 🤫`, ms: 3400 };
+      const ch = channels(s.settings, "NIGHT", s.sfu);
+      const chats = `Solo puedes INICIAR ${n} chat${n === 1 ? "" : "s"} privado${n === 1 ? "" : "s"}`;
+      banner = !ch.text
+        ? { kind: "RADIO", title: `LLAMADA DE RADIO${cyc}`, sub: "Llamadas 1 a 1 ilimitadas: contesta o rechaza 📻", ms: 3000 }
+        : ch.voice
+          ? { kind: "NIGHT", title: `CHAT PRIVADO + RADIO${cyc}`, sub: `${chats} · 📻 radio ilimitada`, ms: 3400, chats: true }
+          : { kind: "NIGHT", title: `CHAT PRIVADO${cyc}`, sub: `${chats} 🤫`, ms: 3400, chats: true };
+      sfx.night();
+    } else if (s.phase === "RADIO") {
+      banner = { kind: "RADIO", title: `LLAMADA DE RADIO${cyc}`, sub: "Llamadas 1 a 1 ilimitadas: contesta o rechaza 📻", ms: 3000 };
       sfx.night();
     } else if (s.phase === "UNMASK") {
       banner = { kind: "UNMASK", title: "EL DESENMASCARE", sub: "Acusa: ¿qué mente hay en qué cuerpo? 🎭", ms: 2600 };
@@ -41,6 +53,9 @@ export function PhaseBanner({ s, bodyName }: { s: StateView; bodyName: string })
       sfx.guess();
     } else if (s.phase === "GUESS") {
       banner = { kind: "GUESS", title: "¿QUIÉN ES QUIÉN?", sub: "Adivina qué mente hay en cada cuerpo", ms: 2600 };
+      sfx.guess();
+    } else if (s.phase === "EXACT") {
+      banner = { kind: "EXACT", title: "EXACTITUD", sub: "¿Qué tan bien imitaron a cada cuerpo? Tu cuerpo vale 2× 🎯", ms: 2800 };
       sfx.guess();
     } else if (s.phase === "RESULTS") {
       banner = { kind: "RESULTS", title: "¡REVELACIÓN!", sub: "Veamos lo que hay adentro… 🧳", ms: 2000 };
@@ -58,8 +73,10 @@ export function PhaseBanner({ s, bodyName }: { s: StateView; bodyName: string })
       <div className="banner-deco">
         {b.kind === "DAY" && <div className="sunrays" />}
         {b.kind === "DAY" && <div className="sun">☀️</div>}
-        {b.kind === "NIGHT" && <Stars n={40} />}
+        {(b.kind === "NIGHT" || b.kind === "RADIO") && <Stars n={40} />}
         {b.kind === "NIGHT" && <div className="moon">🌙</div>}
+        {b.kind === "RADIO" && <div className="moon">📻</div>}
+        {b.kind === "EXACT" && <><div className="sunrays" /><div className="lens">🎯</div></>}
         {b.kind === "GUESS" && <div className="lens">🧩</div>}
         {b.kind === "UNMASK" && <div className="lens">🎭</div>}
         {b.kind === "VOTE" && <div className="lens">🗳️</div>}
@@ -70,7 +87,7 @@ export function PhaseBanner({ s, bodyName }: { s: StateView; bodyName: string })
       </div>
       <h1 className="banner-title">{b.title}</h1>
       <p className="banner-sub">{b.sub}</p>
-      {b.kind === "NIGHT" && (
+      {b.chats && (
         <div className="banner-chats">
           {Array.from({ length: s.chatLimit }, (_, i) => <span key={i} style={{ animationDelay: `${0.7 + i * 0.15}s` }}>💬</span>)}
         </div>

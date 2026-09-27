@@ -3,9 +3,9 @@ import type { Room } from "colyseus.js";
 import { Avatar } from "./Avatar";
 import { Composer, GroupChat, RichText, handle, type Lookup, type Me, type Seed } from "./Chat";
 import { sfx } from "./sfx";
-import { VoiceRoom } from "./voice/VoicePhases";
+import { VoiceRoom, VoiceStrip } from "./voice/VoicePhases";
 import type { Voice } from "./voice/useVoice";
-import { activeCount, type ChatMsg, type PlayerView, type PostView, type ReplyView, type StateView } from "./net";
+import { activeCount, channels, isImmutableMode, type ChatMsg, type PlayerView, type PostView, type ReplyView, type Role, type StateView } from "./net";
 
 /** ❤️ y 🤨 que di yo (el server solo guarda los conteos). */
 export type Social = { liked: Set<string>; sussed: Set<string>; like: (id: string) => void; sus: (id: string) => void };
@@ -241,10 +241,16 @@ export function DayView({ room, s, chat, me, P, players, social, typing, voice }
   const speakAs = P(me.bodyId)?.name ?? "";
   const spectator = !!me.spectator;
   const people = players.filter((p) => !p.bodyOut);
-  const chatEl = voice.inGame ? <VoiceRoom v={voice} people={people} me={me} P={P} /> : (
+  const ch = channels(s.settings, "DAY", s.sfu);
+  const onlyVoice = voice.inGame && !ch.text;
+  const text = (
     <GroupChat room={room} entries={chat} me={me} P={P} people={people} speakAs={speakAs} readOnly={spectator}
       heads={people} typing={typing} quote={quote} onClearQuote={() => setQuote(null)} />
   );
+  // Solo voz: la sala de voz. Voz y texto a la vez: la tira de voz arriba del chat escrito.
+  const chatEl = onlyVoice ? <VoiceRoom v={voice} people={people} me={me} P={P} />
+    : voice.inGame ? <div className="chat-col"><VoiceStrip v={voice} people={people} me={me} P={P} />{text}</div>
+    : text;
   if (s.posts.length === 0) return chatEl;
   const sorted = [...s.posts].sort((a, b) => b.likes - a.likes);
   const mostReplies = Math.max(...s.posts.map((p) => p.replies.length));
@@ -259,7 +265,7 @@ export function DayView({ room, s, chat, me, P, players, social, typing, voice }
             <div key={p.id} className="kmini">
               {mostReplies > 0 && p.replies.length === mostReplies && <span className="khot">🔥 más cotorreado</span>}
               <PostCard post={p} P={P} people={people} myId={me.bodyId} replies={p.replies.length} social={spectator ? undefined : social}
-                onCite={spectator || voice.inGame ? undefined : () => { sfx.pop(); setQuote(p); }} />
+                onCite={spectator || onlyVoice ? undefined : () => { sfx.pop(); setQuote(p); }} />
             </div>
           ))}
         </div>
@@ -270,8 +276,9 @@ export function DayView({ room, s, chat, me, P, players, social, typing, voice }
 
 // ======================= ADIVINANZA =======================
 
-export function Guess({ room, s, players, me, P }: { room: Room; s: StateView; players: PlayerView[]; me: Me; P: Lookup }) {
+export function Guess({ room, s, players, me, P, role }: { room: Room; s: StateView; players: PlayerView[]; me: Me; P: Lookup; role: Role }) {
   const classic = s.settings.mode === "classic";
+  const inm = isImmutableMode(s.settings.mode);
   const bodies = players.filter((p) => p.id !== me.bodyId && !p.bodyOut);
   const outBodies = players.filter((p) => p.bodyOut);
   // En clásico, por defecto nadie cambió; solo marcas a los que crees que cambiaron.
@@ -297,21 +304,24 @@ export function Guess({ room, s, players, me, P }: { room: Room; s: StateView; p
     <div className="card guess">
       <h2>🧩 ¿Quién es quién?</h2>
       {outBodies.length > 0 && (
-        <p className="muted small">🎭 Ya desenmascarados (fuera de la adivinanza): {outBodies.map((b) => b.name).join(", ")}.</p>
+        <p className="muted small">{inm ? "🚪 Ya expulsados" : "🎭 Ya desenmascarados"} (fuera de la adivinanza): {outBodies.map((b) => b.name).join(", ")}.</p>
       )}
       <p className="muted">
         {classic
           ? <>Algunos cambiaron y otros no. Marca <b>🙋 No cambió</b> o la mente que crees que está adentro.</>
-          : <>Todos cambiaron. Elige qué mente hay en cada cuerpo.</>}
-        {" "}+200 por descubrir un cambio{classic && " · +50 por acertar que alguien no cambió"}.
+          : inm
+            ? <>¿Qué mente hay en cada cuerpo? Uno solo no cambió (el Inmutable): márcalo con <b>🙋 No cambió</b>. Si cambiaste, que no te descubran: ganas <b>+150 🥷 Sigilo</b>.</>
+            : <>Todos cambiaron. Elige qué mente hay en cada cuerpo.</>}
+        {" "}+200 por descubrir un cambio{(classic || inm) && " · +50 por acertar quién no cambió"}.
         {" "}Tú estás en el cuerpo de <b>{P(me.bodyId)?.name}</b>.
       </p>
       <div className="grid">
         {bodies.map((b, i) => {
           const val = g[b.id];
           const m = val ? P(val) : undefined;
-          // Si yo cambié, sé que mi cuerpo original NO tiene a su dueño (yo estoy aquí).
-          const canBeSame = classic && b.id !== me.mindId && !b.out;
+          // Si yo cambié, sé que mi cuerpo original NO tiene a su dueño (yo estoy aquí). Si soy el Inmutable, sé que
+          // todos los demás cambiaron.
+          const canBeSame = (classic || (inm && role !== "immutable")) && b.id !== me.mindId && !b.out;
           const minds = players.filter((p) => p.id !== me.mindId && p.id !== b.id && !p.out);
           return (
             <div key={b.id} className={"gcard pop-in" + (val ? (val === b.id ? " same" : " filled") : "")} style={{ animationDelay: `${i * 0.05}s` }}>

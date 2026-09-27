@@ -47,7 +47,7 @@ Hasta 12 jugadores en todos los modos.
 
 ## Flujo de una ronda ✅
 
-`🧳 La máquina → [❓ La Pregunta → 🦜 El Hilo → ☀️ Chat global → 🌙 Chat privado → (votación entre ciclos) → (re-cambio)] × ciclos → votación final → 🏆 Resultados`
+`🧳 La máquina → [❓ La Pregunta → 🦜 El Hilo → ☀️ Chat global → 🌙 Chat privado → (📻 Llamada de radio) → (votación entre ciclos) → (re-cambio)] × ciclos → (🧩 en Inmutables) → votación final → (🎯 Exactitud) → 🏆 Resultados`
 
 1. 🧳 **La máquina:** hace el cambio inicial. Si se puede, nadie repite el cuerpo de la ronda anterior, y en los Inmutables no repite el mismo Inmutable.
 2. **Ciclo:**
@@ -58,7 +58,10 @@ Hasta 12 jugadores en todos los modos.
    - **Votación entre ciclos:** solo si el check está activo, quedan expulsiones disponibles y hay ≥3 activos. **No ocurre en el último ciclo**, porque a ese le sigue la votación final.
    - **Re-cambio:** solo en El Inmutable. Los cambiantes activos se reparten de nuevo los cuerpos que siguen en juego, y nadie se queda en el que tenía. Vuelve a salir la animación de La máquina.
 3. **Votación final:** 🧩 ¿Quién es quién? en Clásico y Todos, ⚖️ Juicio Final en los Inmutables.
-4. 🏆 **Resultados.** El acumulado se ve en el lobby.
+   - **🧩 en Inmutables (check `immGuess`) ✅:** antes del Juicio Final todos adivinan la cuadrícula cuerpo → mente, así los cambiantes también tienen que cuidarse. Por defecto encendido en El No Cambiante y apagado en El Inmutable. Si la partida termina antes (sale el Inmutable), se adivina igual antes de los resultados. Puntos como en Clásico (+200 / +50 / 🥷 +150 / 🎭 +150), que se suman recién al final.
+4. **🎯 Exactitud (check `exactPhase`) ✅:** después de la votación final y antes de los resultados, **todos** (también los espectadores) califican con 1–5 ★ qué tan bien imitaron a cada cuerpo, sin saber todavía quién estaba adentro. Tu voto sobre **tu propio cuerpo vale 2×**; sobre los demás, **0,5×**; nadie califica el cuerpo en el que está. Quien estaba en un cuerpo ajeno gana **★ promedio × 40** (máx. 200). Sub-check `exactChat`: chat durante la fase. Tiempo `exactSeconds` (45 s). En resultados sale en "Tu ronda", en la tarjeta "🎯 Exactitud de las imitaciones" y en el ranking (🎯 +n).
+5. 🏆 **Resultados.** El acumulado se ve en el lobby.
+6. **📜 Detalles de la ronda ✅** (los ven todos, al final de los resultados): 🏅 premios (Lengua suelta, Inseparables, Mariposa social, La voz de la radio, Cotorreo estrella, Cotorreo más sospechoso, Imitación perfecta, Detective, Maestro del disfraz, Modo silencio), 🕸️ el grafo de cada noche (💬 mensajes y 📻 llamadas con duración, con quién estaba adentro), 🦜 el historial de hilos con quién escribió cada cotorreo de verdad y 🗳️ quién votó a quién. Grafos e hilos se **descargan como PNG** (`snapshot.ts`, dibujados en canvas).
 
 **Ciclos (`cycles`, 0 = Auto):** en Auto el valor se resuelve al empezar y queda en `totalCycles`.
 - Clásico / Todos: 1 ciclo. Con la votación entre ciclos activa: 2 ciclos (3 con 9 o más jugadores).
@@ -89,6 +92,12 @@ Hasta 12 jugadores en todos los modos.
 - **Espectador:** solo lee el chat público. No escribe, no vota, no recibe DMs y no ve quién es quién hasta los resultados.
 - **🕸️ Grafo de chats (espectadores) ✅:** de noche el espectador ve los cuerpos en círculo, con una línea entre cada par que se está escribiendo. La línea se engrosa con los mensajes y destella con cada uno nuevo, y abajo hay una lista "Ana ↔ Beto · 2 mensajes". **Nunca ve el contenido.** El server manda `chatGraph` solo a los espectadores.
 - **Fin anticipado (Inmutables):** si sale el Inmutable, ganan los cambiantes; si quedan solo 2 activos, gana el Inmutable.
+
+### Configuración del lobby (en pestañas) ✅
+`🎲 Modo` (modo, ciclos, chats por noche) · `⏱ Tiempos` · `🗳️ Votaciones` (entre ciclos, 🧩 en Inmutables, 💬 chat en votaciones ↳ 🎙️ también por voz, 🎯 Exactitud ↳ 💬 chat) · `🎙️ Voz` · `🎵 Sala`. Las opciones que dependen de otra salen debajo, con sangría. Abajo siempre: el orden de la ronda y los avisos.
+- **💬 Chat en las votaciones (`voteChat`) ✅:** en 🎭 / 🗳️ / ⚖️ / 🧩 hay chat al lado, hablando como el cuerpo (los espectadores leen). **🎙️ `voteVoice`:** además sala de voz (tira de voz arriba del chat), también en 🎯 Exactitud; requiere el chat de voz.
+- **👑 Ceder el host ✅:** el host toca "👑 Ceder" en otro jugador conectado (pide confirmar).
+- **🎵 Música de la sala ✅ (`music`):** 🔇 sin música · ☕ Lo-fi · 🎁 Cajita de música · 🌊 Ambiente. Sintetizada (`music.ts`), bajita, solo en el lobby; el 🔊 de cada quien la apaga.
 
 ### Checks del lobby
 | Ajuste | Aplica a | Por defecto |
@@ -143,6 +152,11 @@ Hasta 12 jugadores en todos los modos.
   - En los Inmutables el marcador público (`score`) se actualiza **recién al final**. Ver quién sumó tras una votación delataría al Inmutable.
   - En La Pregunta, el "quién ya respondió" es anónimo (✓ / …): mostrar las mentes delataría a los fantasmas, que nunca responden.
 
+## Verificación (26/09/2026, 2.ª tanda)
+
+- Bots contra el server: 26 comprobaciones OK (Clásico con chat en votaciones + 🎯; No Cambiante con 🧩 antes del Juicio Final; Inmutable con 🎯 después del veredicto; las 4 combinaciones de noche con voz: radio / chat / ambas / ambas separadas, con duración de llamadas; ceder host).
+- Navegador (Chromium headless): partida completa con la config nueva, detalles de la ronda y descarga de un hilo como PNG. Sin errores de consola. La voz real (SFU) no se probó en esta tanda.
+
 ## Verificación (26/09/2026)
 
 - Simulación del server con bots: 26 comprobaciones OK.
@@ -159,7 +173,12 @@ Hasta 12 jugadores en todos los modos.
 - **Para después:** reacciones a mensajes del chat, subhilos (responder a una respuesta), tema fijado en el chat global.
 - **Descartado:** respuestas sugeridas, la encuesta del grupo y la captura filtrada.
 - Mockups: `mockups/fases-antes-despues.html` (v1) y `mockups/fases-v2.html` (v2; se implementó todo menos la narrativa y la voz).
-- **Voz en partida (26/09/2026) ✅:** check "🎙️ Chat global y privado por voz" (requiere el SFU de Cloudflare). ☀️ sala de voz de los cuerpos activos (espectadores escuchan); 🌙 llamadas 1 a 1 ilimitadas, una a la vez, con timbre y Contestar/Rechazar. Tu voz es la del dueño del cuerpo. El server decide qué oye cada quien y etiqueta las pistas por cuerpo; en partida ignora mute/cambios de voz (delatarían la mente). El resto de fases, sin voz.
+- **Voz en partida (26/09/2026) ✅:** check "🎙️ Chat de voz en la partida" (requiere el SFU de Cloudflare). Tu voz es la del dueño del cuerpo. El server decide qué oye cada quien y etiqueta las pistas por cuerpo; en partida ignora mute/cambios de voz (delatarían la mente). Las reglas de qué chat hay en cada fase están en `channels()` (`rules.ts`, espejo en `net.ts`).
+  - ☀️ sala de voz de los cuerpos activos (espectadores escuchan). Sub-check **"💬🎙️ Chat de voz y texto a la vez" (`voiceText`)**: sala de voz + chat escrito juntos.
+  - 🌙 **De noche (`nightMode`)**: 📻 **Llamada de radio** (en vivo: llamas y el otro contesta o rechaza; ilimitadas, una a la vez), 💬 chat privado (asíncrono, con cupo) o **ambas**. Con ambas, sub-check **"✂️ Separar chats privados y Llamada de radio" (`splitRadio`)**: primero 🌙 chat privado y luego su propia fase `RADIO` (`radioSeconds`); apagado, las dos a la vez en pestañas. Todo lo de llamadas por voz se llama siempre "📻 Llamada de radio".
+  - **🔄 Reconectar voz ✅:** botón en la barra de voz para todos: rearma la conexión (y el micrófono si murió).
+  - **📻 Walkie (0–3):** Off · Poquito (filtro) · **Distorsión** (filtro + saturación + pico nasal, sin estática) · **Radio** (además estática que suena **solo mientras hablas**: un seguidor de envolvente de la voz maneja la ganancia del ruido). Antes el nivel alto tenía siseo constante.
+  - Investigación para que las voces se distingan menos (risas, dinámica, entonación) y para imitar mejor: `plan-voz-anonimato.md`; prototipo `mockups/voz-7.html` (nivelador, aplanar entonación, detector de risas, modo susurro, walkie nuevo).
 - **Voz (26/09/2026) ✅ en el LOBBY:** voz modulada en el cliente (Signalsmith → Tone → nativo → robot; tipos Femenina/Masculina/Neutra con variantes por orden de llegada, walkie 0–2 del host) y malla P2P WebRTC con Colyseus como señalización. Fuera del lobby no hay voz. Para usarla dentro de la partida hará falta un SFU con identidades de cuerpo (la malla P2P delata la mente). Sin TURN, algunas redes no conectan. Plan: `plan-voice-chat.md`; motores probados en `mockups/voz-v5.html`.
 
 ## Sin decidir

@@ -702,3 +702,100 @@ main > .spectator-note { margin-top: 12px; }
 .call-incoming b { font-family: "Lilita One", sans-serif; font-weight: 400; font-size: 20px; }
 .call-incoming small { font-size: 13px; opacity: 0.8; }
 .btn.decline { background: var(--red); color: #fff; box-shadow: 0 5px 0 #a3182f; }
+
+/* ---------- pestañas (configuración, detalles, noche con chat + radio) ---------- */
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+.tab {
+  font: inherit; font-size: 14px; font-weight: 800; color: #fff; background: rgba(255, 255, 255, 0.1); border: 2px solid var(--line);
+  border-radius: 999px; padding: 5px 12px; cursor: pointer; transition: transform 0.1s;
+}
+.tab:hover { transform: translateY(-1px); }
+.tab.on { background: var(--yellow); color: var(--ink); border-color: #fff; }
+.set-body { animation: pop 0.35s both; display: flex; flex-direction: column; gap: 4px; }
+.set-flow { border-top: 2px solid var(--line); padding-top: 8px; margin-top: 8px; }
+.toggle.sub { margin-left: 22px; }
+.toggle-hint { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-top: 2px; }
+.set-sub { display: flex; flex-direction: column; gap: 6px; margin-left: 22px; }
+.set-sub-label { font-weight: 800; font-size: 14px; }
+.settings .set-sub:first-child { margin-left: 0; }
+.segmented { display: flex; flex-wrap: wrap; gap: 4px; background: rgba(0, 0, 0, 0.2); border-radius: 14px; padding: 4px; }
+.segmented button {
+  font: inherit; font-size: 13px; font-weight: 800; flex: 1; min-width: 96px; border: none; border-radius: 10px; padding: 6px 8px;
+  background: none; color: #fff; cursor: pointer;
+}
+.segmented button.on { background: var(--accent); color: #103a1a; }
+.segmented button:disabled { cursor: default; }
+.segmented button:disabled:not(.on) { opacity: 0.6; }
+.give-host { margin-left: 4px; font-size: 12px; padding: 2px 10px; }
+.give-host.confirm { background: var(--yellow); color: var(--ink); border-color: #fff; animation: pop 0.3s both; }
+
+/* ---------- chat al lado de las votaciones / voz + texto ---------- */
+.split.vote-split { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); align-items: start; }
+.vote-split > .card:first-child { min-width: 0; }
+.chat-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.chat-col > .chat { flex: 1; }
+.vote-split .chat-col { position: sticky; top: 76px; max-height: calc(100vh - 100px); }
+.vote-split .chat { min-height: 360px; }
+.voice-strip { display: flex; flex-direction: column; gap: 6px; background: rgba(0, 0, 0, 0.22); border: 2px solid var(--line); border-radius: 16px; padding: 8px; }
+.voice-strip-heads { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.voice-strip-label { font-weight: 800; font-size: 13px; margin-right: 4px; }
+.voice-strip .voice-bar { background: none; padding: 0; }
+.private-both { display: flex; flex-direction: column; gap: 10px; flex: 1; }
+.private-both .call-incoming { grid-column: auto; }
+.night.radio .call-incoming { grid-column: 1 / -1; }
+.phase-RADIO { background: linear-gradient(135deg, #0d2e24, #1d1760); }
+.banner-RADIO { background: radial-gradient(circle, #2f8a6b, #0d2e24 70%); }
+.banner-EXACT { background: radial-gradient(circle, #5ee37a, #0f7060 60%, #1b1446); }
+.phase-EXACT { background: linear-gradient(135deg, #0f7060, #6c2bd9); }
+
+/* ---------- 🎯 Exactitud ---------- */
+.exact-phase { display: flex; flex-direction: column; gap: 12px; }
+.exact-phase .w2, .xweight.w2 { color: var(--ink); background: var(--yellow); border-radius: 8px; padding: 0 6px; }
+.exact-phase .w05 { background: rgba(255, 255, 255, 0.2); border-radius: 8px; padding: 0 6px; }
+.exact-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.xcard {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; padding: 14px 8px 10px;
+  background: rgba(255, 255, 255, 0.08); border: 2px solid var(--line); border-radius: 16px;
+}
+.xcard.mine { border-color: var(--yellow); background: rgba(255, 210, 61, 0.12); }
+.xcard.inside { opacity: 0.65; }
+.xcard.gone { border-style: dashed; }
+.xweight { position: absolute; top: 6px; right: 8px; font-weight: 800; font-size: 12px; background: rgba(255, 255, 255, 0.2); border-radius: 8px; padding: 0 6px; }
+.stars-pick { display: flex; gap: 2px; }
+.stars-pick button { font-size: 26px; line-height: 1; background: none; border: none; color: rgba(255, 255, 255, 0.3); cursor: pointer; padding: 0 1px; transition: transform 0.1s, color 0.1s; }
+.stars-pick button.on { color: var(--yellow); text-shadow: 0 2px 0 #b8901a; }
+.stars-pick button:hover:not(:disabled) { transform: scale(1.2); }
+.stars-pick button:disabled { cursor: default; }
+.exact-rank .xline { display: flex; flex-direction: column; }
+
+/* ---------- 📜 detalles de la ronda ---------- */
+.details { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+.details h3 { margin: 0; }
+.details-list { display: flex; flex-direction: column; gap: 14px; }
+.details-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.night-log, .vote-log { display: flex; flex-direction: column; gap: 8px; background: rgba(0, 0, 0, 0.15); border-radius: 16px; padding: 12px; }
+.cg-edge.radio { stroke: rgba(94, 227, 122, 0.8); stroke-dasharray: 10 8; }
+.cg-mind { fill: var(--yellow); font-family: "Nunito", system-ui, sans-serif; font-weight: 800; font-size: 12px; }
+.details .cg-node { opacity: 0.6; }
+.details .cg-node.talking { opacity: 1; }
+.awards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+.award { display: flex; gap: 10px; align-items: center; background: rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 10px 12px; }
+.award > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.award small { font-family: "Lilita One", sans-serif; font-size: 16px; color: var(--yellow); }
+.award b { display: flex; align-items: center; gap: 6px; }
+.award .muted { font-size: 13px; word-break: break-word; }
+.award-icon { font-size: 34px; }
+.thread-log { display: flex; flex-direction: column; gap: 8px; }
+.tcard { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.tcard-main { display: flex; gap: 10px; }
+.tcard-body { flex: 1; min-width: 0; }
+.tcard-meta { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 13px; color: var(--k-muted); }
+.tcard-meta .kcite { margin-left: auto; }
+.tcard-replies { display: flex; flex-direction: column; gap: 6px; padding-left: 44px; }
+.tcard-reply { display: flex; gap: 8px; font-size: 14px; }
+.mind-tag { margin-left: 6px; font-size: 12px; font-weight: 800; background: var(--yellow); color: var(--ink); border-radius: 999px; padding: 1px 8px; }
+.mind-tag.same { background: var(--accent); color: #103a1a; }
+@media (max-width: 760px) {
+  .split.vote-split { grid-template-columns: 1fr; }
+  .vote-split .chat-col { position: static; max-height: none; }
+}

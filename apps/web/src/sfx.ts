@@ -24,11 +24,18 @@ if (typeof window !== "undefined") {
   window.addEventListener("keydown", unlock, { once: true });
 }
 
+const muteListeners = new Set<(m: boolean) => void>();
 export const isMuted = () => muted;
 export function setMuted(m: boolean) {
   muted = m;
   try { localStorage.setItem("lqha:muted", m ? "1" : "0"); } catch {}
   if (master) master.gain.value = m ? 0 : 0.6;
+  muteListeners.forEach((fn) => fn(m));
+}
+/** Avisa cuando cambia el 🔇 (la música de la sala lo respeta). Devuelve cómo desuscribirse. */
+export function onMuteChange(fn: (m: boolean) => void) {
+  muteListeners.add(fn);
+  return () => { muteListeners.delete(fn); };
 }
 
 type ToneOpts = { type?: OscillatorType; vol?: number; at?: number; to?: number; attack?: number };

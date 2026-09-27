@@ -36,8 +36,10 @@ export async function roomInfo(code: string) {
 // ---- tipos que espejan el server ----
 export type Phase =
   | "LOBBY" | "SWAP" | "QUESTION" | "THREAD" | "DAY" | "NIGHT"
-  | "UNMASK" | "VOTE" | "VERDICT" | "GUESS" | "FINAL_VOTE" | "RESULTS";
+  | "RADIO" | "UNMASK" | "VOTE" | "VERDICT" | "GUESS" | "FINAL_VOTE" | "EXACT" | "RESULTS";
 export type Mode = "classic" | "all" | "immutable" | "still";
+/** 🌙 Qué chat privado hay de noche con la voz activada: 📻 Llamada de radio, 💬 chat de texto o ambos. */
+export type NightMode = "radio" | "chat" | "both";
 export type Role = "immutable" | "changer" | null;
 export type PlayerView = {
   id: string; name: string; color: string; avatar: string; score: number; lastPoints: number;
@@ -51,10 +53,18 @@ export type Settings = {
   questionSeconds: number; threadSeconds: number; daySeconds: number; nightSeconds: number; guessSeconds: number;
   chatsPerNight: number; // 0 = auto
   earlyVote: boolean; voteSeconds: number; maxEjections: number; unmaskSame: boolean;
-  voiceWalkie: number; // 📻 0 off · 1 poquito · 2 bastante
-  voicePhases: boolean; // ☀️ Chat global y 🌙 privado por voz en vez de texto
+  voiceWalkie: number; // 📻 0 off · 1 poquito · 2 distorsión · 3 radio (estática solo al hablar)
+  voicePhases: boolean; // 🎙️ chat de voz en partida
+  voiceText: boolean; // ☀️ voz y texto a la vez
+  nightMode: NightMode;
+  splitRadio: boolean; // 🌙 chat privado y 📻 Llamada de radio en fases separadas
+  radioSeconds: number;
+  voteChat: boolean; voteVoice: boolean; // 💬 / 🎙️ en las votaciones
+  immGuess: boolean; // (Inmutables) 🧩 ¿Quién es quién? antes del Juicio Final
+  exactPhase: boolean; exactChat: boolean; exactSeconds: number; // 🎯 Exactitud
+  music: number; // 🎵 0 = sin música, 1–3 = canción
 };
-/** 🌙 Llamadas por voz (por cuerpo): a quién llamo, quién me llama y con quién ya hablé esta noche. */
+/** 📻 Llamadas de radio (por cuerpo): a quién llamo, quién me llama y con quién ya hablé esta noche. */
 export type CallState = { target: string; incoming: string[]; pairs: string[] };
 export type ReplyView = { id: string; body: string; text: string; likes: number; sus: number };
 export type PostView = ReplyView & { replies: ReplyView[] };
@@ -89,13 +99,31 @@ export type RoundResult = {
   fooled: number;
   bonus: "stealth" | "decoy" | null;
   early: number;
+  exact: number; // 🎯 Exactitud
   points: number;
 };
 export type Ejection = { cycle: number; kind: "UNMASK" | "VOTE" | "FINAL_VOTE"; bodyId: string; mindId: string; wasImmutable: boolean };
-export type GuessResults = { family: "guess"; mode: Mode; results: RoundResult[]; guesses: Record<string, Record<string, string>>; ejections: Ejection[] };
-export type ImmutableResults = {
+/** 🎯 Exactitud de cada cuerpo: promedio ponderado (dueño 2×, resto 0,5×) y puntos para quien lo imitó. */
+export type ExactScore = { bodyId: string; mindId: string; avg: number; votes: number; owner: number | null; points: number };
+/** 📜 Detalles de la ronda: cuerpos y mentes de ese momento, ya sin secretos. */
+export type NightEdge = { aBody: string; bBody: string; aMind: string; bMind: string; dms: number; calls: number; callSec: number; last: number };
+export type ThreadLogReply = { id: string; body: string; mind: string; text: string; likes: number; sus: number };
+export type ThreadLogPost = ThreadLogReply & { replies: ThreadLogReply[] };
+export type Ballot = { voter: string; voterBody: string; body: string | null; mind?: string };
+export type RoundDetails = {
+  nights: { cycle: number; edges: NightEdge[] }[];
+  threads: { cycle: number; question: string; posts: ThreadLogPost[] }[];
+  votes: { cycle: number; kind: Ejection["kind"]; ballots: Ballot[] }[];
+  chat: Record<string, number>;
+  history: Record<string, string[]>;
+};
+type GuessBlock = { results: RoundResult[]; guesses: Record<string, Record<string, string>> };
+type Common = { details: RoundDetails; exact: ExactScore[] | null };
+export type GuessResults = Common & GuessBlock & { family: "guess"; mode: Mode; ejections: Ejection[] };
+export type ImmutableResults = Common & {
   family: "immutable"; mode: Mode; immutableId: string; winner: "changers" | "immutable";
   bodies: Record<string, string>; history: Record<string, string[]>; ejections: Ejection[]; points: Record<string, number>;
+  guess: GuessBlock | null;
 };
 export type ResultsPayload = GuessResults | ImmutableResults;
 export type Verdict = {
@@ -133,6 +161,26 @@ export const isImmutableMode = (m: Mode) => MODES[m].family === "immutable";
 export const REACTIONS = ["😂", "😭", "😊", "❤️", "😡", "👏", "🤔", "👀", "🤡"];
 
 // Mismas fórmulas que el server (rules.ts)
+export const EXACT_WEIGHT = { owner: 2, other: 0.5 };
+export const EXACT_STAR = 40;
+export const VOTE_PHASES: Phase[] = ["UNMASK", "VOTE", "FINAL_VOTE", "GUESS"];
+/** Qué chat hay en cada fase de la partida: escrito y/o de voz (de noche, la voz es la 📻 Llamada de radio). */
+export function channels(st: Settings, phase: Phase, sfu: boolean) {
+  const voice = st.voicePhases && sfu;
+  switch (phase) {
+    case "DAY": return { text: !voice || st.voiceText, voice };
+    case "NIGHT": {
+      const mode = voice ? st.nightMode : "chat";
+      return { text: mode !== "radio", voice: mode === "radio" || (mode === "both" && !st.splitRadio) };
+    }
+    case "RADIO": return { text: false, voice };
+    case "EXACT": return { text: st.exactChat, voice: voice && st.exactChat && st.voteVoice };
+    default:
+      if (VOTE_PHASES.includes(phase)) return { text: st.voteChat, voice: voice && st.voteChat && st.voteVoice };
+      return { text: false, voice: false };
+  }
+}
+export const hasRadioPhase = (st: Settings, sfu: boolean) => st.voicePhases && sfu && st.nightMode === "both" && st.splitRadio;
 export const autoChats = (players: number) => Math.min(5, Math.max(2, Math.floor(players / 2)));
 export const skipNeeded = (connected: number) => Math.floor(connected / 2) + 1;
 export function autoCycles(mode: Mode, n: number, earlyVote: boolean) {

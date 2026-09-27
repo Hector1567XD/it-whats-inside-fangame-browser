@@ -4,7 +4,7 @@ import confetti from "canvas-confetti";
 import { Avatar } from "./Avatar";
 import type { Lookup, Me } from "./Chat";
 import { sfx } from "./sfx";
-import type { GuessResults, ImmutableResults, ResultsPayload } from "./net";
+import { EXACT_STAR, EXACT_WEIGHT, type ExactScore, type GuessResults, type ImmutableResults, type ResultsPayload, type RoundResult } from "./net";
 
 const KIND_LABEL = { UNMASK: "🎭 Desenmascare", VOTE: "🗳️ Votación", FINAL_VOTE: "⚖️ Juicio Final" } as const;
 
@@ -130,36 +130,14 @@ function GuessResultsView({ data, P, me, isHost, room, onRevealed }: Props & { d
                 <b className="mg-pts">{mine.early > 0 ? `+${mine.early}` : mine.early}</b>
               </li>
             )}
-            {Object.entries(myGuesses).map(([bodyId, guess]) => {
-              const real = truth[bodyId];
-              const ok = guess === real;
-              const pts = ok ? (real === bodyId ? 50 : 200) : 0;
-              return (
-                <li key={bodyId} className={ok ? "ok" : "bad"}>
-                  <Avatar avatar={P(bodyId)?.avatar} color={P(bodyId)?.color ?? "#999"} size={28} />
-                  <span>Cuerpo de <b>{P(bodyId)?.name}</b></span>
-                  <span className="mg-said">
-                    dijiste: <b>{!guess ? "—" : guess === bodyId ? "no cambió" : P(guess)?.name}</b>
-                    {!ok && <> · era: <b>{real === bodyId ? "no cambió" : P(real)?.name}</b></>}
-                  </span>
-                  <b className="mg-pts">{ok ? `✅ +${pts}` : "❌"}</b>
-                </li>
-              );
-            })}
-            {!mine.out && <li className={mine.bonus ? "ok bonus" : "bad bonus"}>
-              {mine.swapped ? (
-                <span>🥷 <b>Sigilo</b>: cambiaste y te descubrieron {mine.guessedBy} de {rivals}
-                  {mine.bonus ? " — ¡menos de la mitad!" : " (necesitabas menos de la mitad)"}</span>
-              ) : (
-                <span>🎭 <b>Despiste</b>: no cambiaste y {mine.fooled} de {rivals} creyeron que sí
-                  {mine.bonus ? " — ¡los engañaste!" : " (necesitabas la mitad o más)"}</span>
-              )}
-              <b className="mg-pts">{mine.bonus ? "✅ +150" : "❌"}</b>
-            </li>}
+            <GuessLines mine={mine} myGuesses={myGuesses} truth={truth} rivals={rivals} P={P} />
+            <ExactLine exact={data.exact} mindId={me.mindId} P={P} />
           </ul>
           <div className="my-total">Esta ronda: <b>{mine.points >= 0 ? "+" : ""}{mine.points}</b></div>
         </div>
       )}
+
+      {allShown && data.exact && <ExactCard exact={data.exact} P={P} me={me.mindId} />}
 
       {allShown && (
         <div className="card pop-in">
@@ -174,14 +152,15 @@ function GuessResultsView({ data, P, me, isHost, room, onRevealed }: Props & { d
                   <span className="rank-detail">
                     🎯 {r.hits}{data.mode === "classic" && ` · 🙋 ${r.sameHits}`}
                     {r.bonus === "stealth" && " · 🥷"}{r.bonus === "decoy" && " · 🎭"}
-                    {r.early !== 0 && ` · 🎭 ${r.early > 0 ? "+" : ""}${r.early}`}{r.out && " · 👻"}
+                    {r.early !== 0 && ` · 🎭 ${r.early > 0 ? "+" : ""}${r.early}`}
+                    {r.exact !== 0 && ` · 🎯 +${r.exact}`}{r.out && " · 👻"}
                   </span>
                   <b>{r.points >= 0 ? "+" : ""}{r.points}</b>
                 </li>
               );
             })}
           </ol>
-          <p className="muted small">🎯 cambios descubiertos (+200) · 🙋 aciertos de “no cambió” (+50) · 🥷/🎭 bonus (+150). El total acumulado está en la sala de espera.</p>
+          <p className="muted small">🎯 cambios descubiertos (+200) · 🙋 aciertos de “no cambió” (+50) · 🥷/🎭 bonus (+150){data.exact && ` · 🎯 Exactitud (★ × ${EXACT_STAR})`}. El total acumulado está en la sala de espera.</p>
           {isHost ? <button className="btn big wiggle" onClick={() => room.send("next")}>▶ VOLVER A LA SALA</button>
             : <p className="muted center-text">Esperando al host…</p>}
         </div>
@@ -204,6 +183,10 @@ function ImmutableResultsView({ data, P, me, isHost, room, onRevealed }: Props &
   const iWon = data.winner === "immutable" ? me.mindId === data.immutableId : me.mindId !== data.immutableId;
   const bodyToMind = Object.fromEntries(Object.entries(data.bodies).map(([m, b]) => [b, m]));
   const ranking = Object.entries(data.points).sort((a, b) => b[1] - a[1]);
+  const guessOf = new Map((data.guess?.results ?? []).map((r) => [r.mindId, r]));
+  const exactOf = new Map((data.exact ?? []).map((e) => [e.mindId, e.points]));
+  const mine = guessOf.get(me.mindId);
+  const guessPts = (r?: RoundResult) => (r ? r.points - r.early : 0);
 
   return (
     <div className="results">
@@ -256,25 +239,137 @@ function ImmutableResultsView({ data, P, me, isHost, room, onRevealed }: Props &
         </div>
       </div>
 
+      {data.guess && mine && (
+        <div className="card mine-round">
+          <h2>🧩 Tu ¿Quién es quién?</h2>
+          <ul className="my-guesses">
+            <GuessLines mine={mine} myGuesses={data.guess.guesses[me.mindId] ?? {}} P={P}
+              truth={Object.fromEntries(data.guess.results.map((r) => [r.bodyId, r.mindId]))}
+              rivals={data.guess.results.filter((r) => !r.out).length - 1} />
+            <ExactLine exact={data.exact} mindId={me.mindId} P={P} />
+          </ul>
+        </div>
+      )}
+
+      {data.exact && <ExactCard exact={data.exact} P={P} me={me.mindId} />}
+
       <div className="card">
         <h2>🏅 Puntos de esta ronda</h2>
         <ol className="rank">
           {ranking.map(([id, pts], i) => {
             const p = P(id);
+            const g = guessPts(guessOf.get(id));
+            const x = exactOf.get(id) ?? 0;
             return (
               <li key={id} className={"pop-in" + (id === me.mindId ? " me" : "")} style={{ animationDelay: `${i * 0.1}s` }}>
                 <span className="medal">{["🥇", "🥈", "🥉"][i] ?? `${i + 1}.`}</span>
                 <Avatar avatar={p?.avatar} color={p?.color ?? "#999"} size={30} /> {p?.name}
-                <span className="rank-detail">{id === data.immutableId ? "🗿 Inmutable" : "🔀 cambiante"}{p?.out ? " · 👻" : ""}</span>
+                <span className="rank-detail">
+                  {id === data.immutableId ? "🗿 Inmutable" : "🔀 cambiante"}{p?.out ? " · 👻" : ""}
+                  {g !== 0 && ` · 🧩 +${g}`}{x !== 0 && ` · 🎯 +${x}`}
+                </span>
                 <b>{pts >= 0 ? "+" : ""}{pts}</b>
               </li>
             );
           })}
         </ol>
-        <p className="muted small">Inmutable: +500 si gana, +100 por cada cambiante expulsado y +100 por cada votación que sobrevive. Cambiantes: +150 si ganan, +200 extra si votaste por el Inmutable, −50 si votaste por un cambiante que expulsaron.</p>
+        <p className="muted small">
+          Inmutable: +500 si gana, +100 por cada cambiante expulsado y +100 por cada votación que sobrevive. Cambiantes: +150 si ganan, +200 extra si votaste por el Inmutable, −50 si votaste por un cambiante que expulsaron.
+          {data.guess && " 🧩 ¿Quién es quién?: +200 por cambio descubierto, +50 por acertar quién no cambió, +150 🥷/🎭 bonus."}
+          {data.exact && ` 🎯 Exactitud: ★ promedio × ${EXACT_STAR} para quien estaba en un cuerpo ajeno.`}
+        </p>
         {isHost ? <button className="btn big wiggle" onClick={() => room.send("next")}>▶ VOLVER A LA SALA</button>
           : <p className="muted center-text">Esperando al host…</p>}
       </div>
+    </div>
+  );
+}
+
+// ======================= piezas compartidas =======================
+
+/** Tus adivinanzas contra la verdad, y el bonus 🥷 Sigilo / 🎭 Despiste. */
+function GuessLines({ mine, myGuesses, truth, rivals, P }: {
+  mine: RoundResult; myGuesses: Record<string, string>; truth: Record<string, string>; rivals: number; P: Props["P"];
+}) {
+  return (
+    <>
+      {Object.entries(myGuesses).map(([bodyId, guess]) => {
+        const real = truth[bodyId];
+        const ok = guess === real;
+        const pts = ok ? (real === bodyId ? 50 : 200) : 0;
+        return (
+          <li key={bodyId} className={ok ? "ok" : "bad"}>
+            <Avatar avatar={P(bodyId)?.avatar} color={P(bodyId)?.color ?? "#999"} size={28} />
+            <span>Cuerpo de <b>{P(bodyId)?.name}</b></span>
+            <span className="mg-said">
+              dijiste: <b>{!guess ? "—" : guess === bodyId ? "no cambió" : P(guess)?.name}</b>
+              {!ok && <> · era: <b>{real === bodyId ? "no cambió" : P(real)?.name}</b></>}
+            </span>
+            <b className="mg-pts">{ok ? `✅ +${pts}` : "❌"}</b>
+          </li>
+        );
+      })}
+      {!mine.out && <li className={mine.bonus ? "ok bonus" : "bad bonus"}>
+        {mine.swapped ? (
+          <span>🥷 <b>Sigilo</b>: cambiaste y te descubrieron {mine.guessedBy} de {rivals}
+            {mine.bonus ? " — ¡menos de la mitad!" : " (necesitabas menos de la mitad)"}</span>
+        ) : (
+          <span>🎭 <b>Despiste</b>: no cambiaste y {mine.fooled} de {rivals} creyeron que sí
+            {mine.bonus ? " — ¡los engañaste!" : " (necesitabas la mitad o más)"}</span>
+        )}
+        <b className="mg-pts">{mine.bonus ? "✅ +150" : "❌"}</b>
+      </li>}
+    </>
+  );
+}
+
+const stars = (avg: number) => "★".repeat(Math.round(avg)) + "☆".repeat(5 - Math.round(avg));
+
+/** 🎯 Tu línea de Exactitud en "Tu ronda": qué tan bien imitaste y cuánto sumó. */
+function ExactLine({ exact, mindId, P }: { exact: ExactScore[] | null; mindId: string; P: Props["P"] }) {
+  const e = exact?.find((x) => x.mindId === mindId);
+  if (!e) return null;
+  if (e.bodyId === mindId) {
+    return <li className="bad bonus"><span>🎯 <b>Exactitud</b>: estabas en tu cuerpo, no había a quién imitar</span><b className="mg-pts">—</b></li>;
+  }
+  return (
+    <li className={(e.points > 0 ? "ok" : "bad") + " bonus"}>
+      <span>
+        🎯 <b>Exactitud</b>: imitando a {P(e.bodyId)?.name} sacaste <b>{e.votes ? `${stars(e.avg)} ${e.avg.toFixed(1)}` : "sin votos"}</b>
+        {e.owner !== null && <> · {P(e.bodyId)?.name} te dio {e.owner} ★ (vale {EXACT_WEIGHT.owner}×)</>}
+      </span>
+      <b className="mg-pts">{e.points > 0 ? `✅ +${e.points}` : "0"}</b>
+    </li>
+  );
+}
+
+/** 🎯 Cómo imitaron a cada cuerpo (y cuánto sumó): el dueño vale 2×, el resto 0,5×. */
+function ExactCard({ exact, P, me }: { exact: ExactScore[]; P: Props["P"]; me: string }) {
+  const list = [...exact].sort((a, b) => b.avg - a.avg);
+  return (
+    <div className="card pop-in">
+      <h2>🎯 Exactitud de las imitaciones</h2>
+      <p className="muted small">Promedio ponderado: el voto del dueño del cuerpo vale {EXACT_WEIGHT.owner}× y el del resto {String(EXACT_WEIGHT.other).replace(".", ",")}×. Sumó ★ × {EXACT_STAR} a quien estaba adentro.</p>
+      <ol className="rank exact-rank">
+        {list.map((e) => {
+          const body = P(e.bodyId);
+          const mind = P(e.mindId);
+          const same = e.bodyId === e.mindId;
+          return (
+            <li key={e.bodyId} className={e.mindId === me ? "me" : ""}>
+              <Avatar avatar={body?.avatar} color={body?.color ?? "#999"} size={30} />
+              <span className="xline">
+                <span>
+                  {same ? <>Cuerpo de {body?.name} <span className="muted">· 🟢 no cambió</span></>
+                    : <>{mind?.name} <span className="muted">imitando a</span> {body?.name}</>}
+                </span>
+                <span className="rank-detail">{e.votes ? `${stars(e.avg)} ${e.avg.toFixed(1)} · ${e.votes} voto${e.votes === 1 ? "" : "s"}` : "sin votos"}{e.owner !== null && ` · dueño: ${e.owner} ★`}</span>
+              </span>
+              <b>{same ? "—" : `+${e.points}`}</b>
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }
