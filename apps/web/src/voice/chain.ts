@@ -1,5 +1,6 @@
 import { buildEngine, pickEngine, Links, type Engine, type EngineId } from "./engines";
 import type { VoiceParams } from "./presets";
+import { detectF0Live } from "./pitch";
 
 /** 📻 0 = off · 1 = poquito · 2 = distorsión (sin estática) · 3 = radio (estática solo mientras hablas). */
 export type WalkieLevel = 0 | 1 | 2 | 3;
@@ -10,6 +11,16 @@ const curveOf = (fn: (x: number) => number, n = 1024) => {
   for (let i = 0; i < n; i++) c[i] = fn((i / (n - 1)) * 2 - 1);
   return c;
 };
+
+/**
+ * 🎚️ Aplanar entonación: la voz sale en `objetivo + (f0 − media) · K`. Con K = 0,5 las subidas y bajadas de tono
+ * quedan a la mitad (se parecen más entre personas); 1 = natural, 0 = monótono. Solo con motores que cambian
+ * el tono en vivo sin cortes; el resto se queda con el corrimiento fijo.
+ */
+const FLATTEN_K = 0.5;
+const FLATTEN_ENGINES: EngineId[] = ["signalsmith", "tone"];
+const TICK_MS = 25; // ~40 mediciones por segundo
+const toSemi = (hz: number) => 12 * Math.log2(hz / 55);
 
 /**
  * input → motor de tono → timbre (lowshelf + highshelf) → walkie → compresor → out.
@@ -25,8 +36,20 @@ class Pipeline {
   private engine: Engine | null = null;
   engineId: EngineId | null = null;
   failed: { id: EngineId; error: string }[] = [];
+  // Aplanar entonación
+  private params: VoiceParams | null = null;
+  private pitchAn: AnalyserNode;
+  private pitchBuf = new Float32Array(2048);
+  private pitchTimer: ReturnType<typeof setInterval> | undefined;
+  private med: number[] = []; // últimos 3 tonos (mediana)
+  private mean: number | null = null; // media del tono de quien habla (~4 s), en semitonos
+  private shift = 0; // corrimiento actual, en semitonos
+  private sent = NaN;
 
   constructor(private ctx: AudioContext, private input: AudioNode, out: AudioNode) {
+    this.pitchAn = ctx.createAnalyser();
+    this.pitchAn.fftSize = 2048;
+    input.connect(this.pitchAn);
     this.post = ctx.createGain();
     this.low = ctx.createBiquadFilter();
     this.low.type = "lowshelf";
@@ -44,22 +67,62 @@ class Pipeline {
   async start(p: VoiceParams, walkie: WalkieLevel, engineId?: EngineId) {
     this.setTilt(p.tilt);
     this.setWalkie(walkie);
+    this.params = p;
+    this.shift = p.semitones;
     if (engineId) {
       try {
         this.engine = await buildEngine(engineId, this.ctx, this.input, this.post, p);
         this.engineId = engineId;
-        return;
+        return this.startFlatten();
       } catch (e) {
         console.warn(`[voz] el motor ${engineId} dejó de funcionar:`, e);
       }
     }
     const r = await pickEngine(this.ctx, this.input, this.post, p);
     Object.assign(this, { engine: r.engine, engineId: r.id, failed: r.failed });
+    this.startFlatten();
   }
 
   setParams(p: VoiceParams) {
     this.setTilt(p.tilt);
-    this.engine?.set(p);
+    this.params = p;
+    if (this.pitchTimer) this.sent = NaN; // el próximo cuadro lo manda con el objetivo nuevo
+    else this.engine?.set(p);
+  }
+
+  private startFlatten() {
+    clearInterval(this.pitchTimer);
+    if (!this.engineId || !FLATTEN_ENGINES.includes(this.engineId)) return;
+    this.pitchTimer = setInterval(() => this.flattenTick(), TICK_MS);
+  }
+
+  /** Un cuadro: mide el tono de quien habla y ajusta el corrimiento para que salga más plano. */
+  private flattenTick() {
+    const p = this.params;
+    if (!p || !this.engine) return;
+    this.pitchAn.getFloatTimeDomainData(this.pitchBuf);
+    const f0 = detectF0Live(this.pitchBuf, this.ctx.sampleRate);
+    let s: number | null = f0 ? toSemi(f0) : null;
+    if (s !== null) {
+      this.med.push(s);
+      if (this.med.length > 3) this.med.shift();
+      s = [...this.med].sort((a, b) => a - b)[Math.floor(this.med.length / 2)];
+      if (this.mean !== null && Math.abs(s - this.mean) > 10) s = null; // salto raro: probable error de octava
+    }
+    if (s !== null) {
+      // La media arranca en el tono calibrado del jugador y se va ajustando (~4 s).
+      this.mean ??= toSemi(p.f0);
+      this.mean += (s - this.mean) * (TICK_MS / 1000 / 4);
+      const target = toSemi(p.f0) + p.semitones; // tono de la voz del cuerpo
+      const out = target + (s - this.mean) * FLATTEN_K;
+      const want = Math.min(12, Math.max(-12, out - s));
+      this.shift += (want - this.shift) * 0.6;
+    }
+    // Sin voz se mantiene el último corrimiento.
+    const semis = Math.round(this.shift * 20) / 20;
+    if (semis === this.sent) return;
+    this.sent = semis;
+    this.engine.set({ ...p, semitones: semis });
   }
 
   private setTilt(t: number) {
@@ -73,65 +136,75 @@ class Pipeline {
     try { this.high.disconnect(); } catch {}
     const L = this.walkieLinks;
     if (level === 0) return L.link(this.high, this.comp);
-    const [hpHz, lpHz, drive] = level === 1 ? [300, 3400, 1.5] : level === 2 ? [450, 2800, 5] : [500, 2600, 4];
-    const hp = ctx.createBiquadFilter();
-    hp.type = "highpass";
-    hp.frequency.value = hpHz;
-    const lp = ctx.createBiquadFilter();
-    lp.type = "lowpass";
-    lp.frequency.value = lpHz;
-    const sh = ctx.createWaveShaper();
-    sh.curve = curveOf((x) => Math.tanh(drive * x) / Math.tanh(drive));
-    sh.oversample = level === 2 ? "2x" : "none";
+    // Los mismos valores que mockups/voz-7.html (ⓕ Walkie).
+    const biquad = (type: BiquadFilterType, hz: number, q: number) => {
+      const b = ctx.createBiquadFilter();
+      b.type = type;
+      b.frequency.value = hz;
+      b.Q.value = q;
+      return b;
+    };
+    const shaper = (fn: (x: number) => number) => {
+      const sh = ctx.createWaveShaper();
+      sh.curve = curveOf(fn);
+      return sh;
+    };
+    const gain = (v: number) => {
+      const g = ctx.createGain();
+      g.gain.value = v;
+      return g;
+    };
+    // Poquito: pasa-banda 300–3.400 Hz. Distorsión y Radio: 500–2.600 Hz + saturación.
+    const [hpHz, lpHz, drive] = level === 1 ? [300, 3400, 0] : [500, 2600, 4];
+    const hp = biquad("highpass", hpHz, 0.9);
+    const lp = biquad("lowpass", lpHz, 0.9);
     L.link(this.high, hp);
     L.link(hp, lp);
-    L.link(lp, sh);
-    if (level === 2) {
-      // Distorsión: un pico nasal a ~1,4 kHz (parlante chico) además de la saturación. Sin estática.
-      const nasal = ctx.createBiquadFilter();
-      nasal.type = "peaking";
-      nasal.frequency.value = 1400;
-      nasal.Q.value = 1.2;
-      nasal.gain.value = 7;
-      L.link(sh, nasal);
-      L.link(nasal, this.comp);
-      return;
+    let last: AudioNode = lp;
+    if (drive) {
+      const sh = shaper((x) => Math.tanh(drive * x) / Math.tanh(drive));
+      const post = gain(0.8);
+      L.link(lp, sh);
+      L.link(sh, post);
+      last = post;
     }
-    L.link(sh, this.comp);
+    L.link(last, this.comp);
     if (level === 3) {
-      // Estática que suena SOLO mientras hablas: un seguidor de envolvente de la voz (|x| → pasa-bajos → umbral)
-      // maneja la ganancia del ruido. En silencio queda en 0 (nada de siseo constante).
+      // Estática que suena SOLO mientras hablas: |voz| → pasa-bajos 15 Hz → ×12 → umbral → ganancia del ruido.
+      // La ganancia base del ruido es 0: en silencio no hay siseo.
       const nb = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
       const d = nb.getChannelData(0);
       for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
       const noise = ctx.createBufferSource();
       noise.buffer = nb;
       noise.loop = true;
-      const nhp = ctx.createBiquadFilter();
-      nhp.type = "highpass";
-      nhp.frequency.value = 900;
-      const ng = ctx.createGain();
-      ng.gain.value = 0;
-      const rect = ctx.createWaveShaper();
-      rect.curve = curveOf(Math.abs);
-      const smooth = ctx.createBiquadFilter();
-      smooth.type = "lowpass";
-      smooth.frequency.value = 12;
-      const gate = ctx.createWaveShaper();
-      gate.curve = curveOf((x) => (x > 0.012 ? Math.min(0.06, (x - 0.012) * 0.8) : 0), 2048);
-      L.link(lp, rect);
-      L.link(rect, smooth);
-      L.link(smooth, gate);
-      L.link(gate, ng.gain);
+      const rect = shaper(Math.abs);
+      const env = biquad("lowpass", 15, 0.7);
+      const sens = gain(12);
+      const gate = shaper((x) => Math.min(1, Math.max(0, (x - 0.12) / 0.4)));
+      const nhp = biquad("highpass", 900, 0.7);
+      const nlp = biquad("lowpass", 5500, 0.7);
+      const staticLevel = gain(Math.pow(10, -24 / 20)); // −24 dB
+      const noiseGain = gain(0);
+      L.link(this.high, rect);
+      L.link(rect, env);
+      L.link(env, sens);
+      L.link(sens, gate);
+      L.link(gate, noiseGain.gain);
       L.link(noise, nhp);
-      L.link(nhp, ng);
-      L.link(ng, this.comp);
+      L.link(nhp, nlp);
+      L.link(nlp, staticLevel);
+      L.link(staticLevel, noiseGain);
+      L.link(noiseGain, this.comp);
       noise.start();
       L.own(noise);
     }
   }
 
   stop() {
+    clearInterval(this.pitchTimer);
+    this.pitchTimer = undefined;
+    try { this.input.disconnect(this.pitchAn); } catch {}
     this.engine?.stop();
     this.engine = null;
     this.walkieLinks.clear();
